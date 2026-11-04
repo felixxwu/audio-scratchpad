@@ -20,3 +20,18 @@ jobs:
         run: |
           ditto -c -k --keepParent "build/Audio Scratchpad.app" "Audio-Scratchpad-$TAG.zip"
           gh release upload "$TAG" "Audio-Scratchpad-$TAG.zip" --clobber
+
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: windows\build.cmd
+        shell: cmd
+      - name: Attach the app to the release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          cp "build/Audio Scratchpad.exe" "Audio-Scratchpad-$TAG.exe"
+          gh release upload "$TAG" "Audio-Scratchpad-$TAG.exe" --clobber

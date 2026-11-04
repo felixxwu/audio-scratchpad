@@ -1,0 +1,22 @@
+name: Release build
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: ./build.sh
+      - name: Attach the app to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          ditto -c -k --keepParent "build/Audio Scratchpad.app" "Audio-Scratchpad-$TAG.zip"
+          gh release upload "$TAG" "Audio-Scratchpad-$TAG.zip" --clobber

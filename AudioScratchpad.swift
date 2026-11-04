@@ -155,7 +155,7 @@ final class AppModel: NSObject, ObservableObject, AVAudioPlayerDelegate {
     private var player: AVAudioPlayer?
 
     let folder = FileManager.default.urls(for: .musicDirectory, in: .userDomainMask)[0]
-        .appendingPathComponent("AppRecorder", isDirectory: true)
+        .appendingPathComponent("Audio Scratchpad", isDirectory: true)
 
     var isRecording: Bool { startedAt != nil }
     var isCapturing: Bool { isRecording || isWaitingForAudio }
@@ -339,7 +339,7 @@ final class AppModel: NSObject, ObservableObject, AVAudioPlayerDelegate {
         let nsError = error as NSError
         if nsError.domain == SCStreamErrorDomain && nsError.code == SCStreamError.Code.userDeclined.rawValue {
             needsPermission = true
-            message = "AppRecorder needs permission to record audio. Allow it in System Settings, then reopen the app."
+            message = "Audio Scratchpad needs permission to record audio. Allow it in System Settings, then reopen the app."
         } else {
             message = error.localizedDescription
         }
@@ -381,6 +381,63 @@ struct WaveformView: View {
     }
 }
 
+// Lays over a control so a click still acts on it, while dragging carries a file into another app.
+// SwiftUI's own drag gesture never started inside the recordings list, so this handles the mouse through AppKit.
+struct FileDragArea: NSViewRepresentable {
+    let url: URL
+    let onClick: () -> Void
+
+    func makeNSView(context: Context) -> FileDragView {
+        let view = FileDragView()
+        view.toolTip = "Click to copy, or drag into another app"
+        return view
+    }
+
+    func updateNSView(_ view: FileDragView, context: Context) {
+        view.url = url
+        view.onClick = onClick
+    }
+}
+
+final class FileDragView: NSView, NSDraggingSource {
+    var url: URL?
+    var onClick: (() -> Void)?
+    private var pressLocation: NSPoint?
+
+    override func resetCursorRects() {
+        addCursorRect(bounds, cursor: .openHand)
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        pressLocation = event.locationInWindow
+    }
+
+    override func mouseDragged(with event: NSEvent) {
+        // A hand that shifts slightly during a click shouldn't turn it into a drag.
+        guard let url, let pressLocation,
+              hypot(event.locationInWindow.x - pressLocation.x, event.locationInWindow.y - pressLocation.y) > 3
+        else { return }
+        self.pressLocation = nil
+
+        let size: CGFloat = 32
+        let pointer = convert(event.locationInWindow, from: nil)
+        let item = NSDraggingItem(pasteboardWriter: url as NSURL)
+        item.setDraggingFrame(NSRect(x: pointer.x - size / 2, y: pointer.y - size / 2, width: size, height: size),
+                              contents: NSWorkspace.shared.icon(forFile: url.path))
+        beginDraggingSession(with: [item], event: event, source: self)
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        if pressLocation != nil { onClick?() }
+        pressLocation = nil
+    }
+
+    func draggingSession(_ session: NSDraggingSession,
+                         sourceOperationMaskFor context: NSDraggingContext) -> NSDragOperation {
+        .copy
+    }
+}
+
 struct LiveRecordingRow: View {
     @ObservedObject var live: LiveWaveform
     let name: String
@@ -389,6 +446,7 @@ struct LiveRecordingRow: View {
     var body: some View {
         HStack {
             Image(systemName: "record.circle.fill")
+                .frame(width: 18)
                 .foregroundStyle(.red)
                 .accessibilityLabel("Recording")
 
@@ -500,6 +558,8 @@ struct ContentView: View {
                 model.togglePlayback(recording)
             } label: {
                 Image(systemName: model.playingURL == recording.url ? "stop.fill" : "play.fill")
+                    .frame(width: 18)
+                    .contentShape(Rectangle())
             }
             .buttonStyle(.borderless)
             .accessibilityLabel(model.playingURL == recording.url ? "Stop playing" : "Play")
@@ -522,17 +582,12 @@ struct ContentView: View {
                 .monospacedDigit()
                 .foregroundStyle(.secondary)
 
-            // Not a Button, because a Button keeps the mouse press for itself and a drag can never start.
-            Image(systemName: model.copiedURL == recording.url ? "checkmark" : "doc.on.doc")
-                .foregroundStyle(.secondary)
-                .contentShape(Rectangle())
-                .onTapGesture { model.copyToClipboard(recording) }
-                .onDrag { NSItemProvider(object: recording.url as NSURL) }
-                .help("Click to copy, or drag into another app")
-                .accessibilityElement()
-                .accessibilityAddTraits(.isButton)
+            Button { model.copyToClipboard(recording) } label: {
+                Image(systemName: model.copiedURL == recording.url ? "checkmark" : "doc.on.doc")
+            }
+                .buttonStyle(.borderless)
                 .accessibilityLabel(model.copiedURL == recording.url ? "Copied" : "Copy to clipboard")
-                .accessibilityAction { model.copyToClipboard(recording) }
+                .overlay(FileDragArea(url: recording.url) { model.copyToClipboard(recording) })
             Button { model.reveal(recording) } label: { Image(systemName: "folder") }
                 .buttonStyle(.borderless)
                 .accessibilityLabel("Show in Finder")
@@ -560,12 +615,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 }
 
 @main
-struct AppRecorderApp: App {
+struct AudioScratchpadApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
     @StateObject private var model = AppModel()
 
     var body: some Scene {
-        Window("AppRecorder", id: "main") {
+        Window("Audio Scratchpad", id: "main") {
             ContentView(model: model)
                 .tint(.appAccent)
                 .onAppear { delegate.model = model }

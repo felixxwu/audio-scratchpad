@@ -1,1 +1,47 @@
-# audio-scratchpad
+<h1 align="center">Audio Scratchpad</h1>
+
+<p align="center">
+  Record the sound of one Mac app, then play it back or drag it straight into another app.
+</p>
+
+<p align="center">
+  <img src="image.png" alt="Audio Scratchpad window showing Google Chrome as the source and three recordings with their waveforms" width="536">
+</p>
+
+## Features
+
+- **Record one app:** capture a single app's audio without picking up the rest of your Mac.
+- **Start on the first sound:** recording begins at the first non-zero sample, so there's no silence to trim from the start.
+- **Keep the full quality:** recordings are uncompressed 32-bit float WAV files at 48 kHz in stereo.
+- **See every take:** each recording gets a waveform you can click or drag along to jump to any point.
+- **Use it anywhere:** click the copy icon to copy the file, or drag the icon into another app.
+
+Recordings are saved to `~/Music/Audio Scratchpad`.
+
+## Install
+
+You'll need an Apple Silicon Mac running macOS 14 or later.
+
+1. Download the zip from the [latest release](https://github.com/felixxwu/audio-scratchpad/releases/latest).
+2. Unzip it and move **Audio Scratchpad** to your Applications folder.
+3. Open it. The app isn't notarized, so macOS will block it the first time. Go to **System Settings → Privacy & Security** and choose **Open Anyway**.
+4. Allow **Screen & System Audio Recording** when asked. macOS uses this permission for app audio, and Audio Scratchpad doesn't save any video.
+
+## Usage
+
+1. Open the app you want to record and choose it under **Source**.
+2. Click **Record**. The button shows "waiting for audio..." until the app makes a sound.
+3. Click **Stop** when you're done, and the recording appears in the list.
+
+## Build from source
+
+You'll need the Xcode command line tools, which you can install with `xcode-select --install`.
+
+```sh
+./build.sh
+open ~/Applications/"Audio Scratchpad.app"
+```
+
+The script runs the self-checks, builds the app and installs it to `~/Applications`.
+
+Publishing a GitHub release builds the app automatically and attaches the zip to that release.

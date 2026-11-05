@@ -1,5 +1,6 @@
 // Captures one app and its child processes through WASAPI process loopback into a single file. Needs Windows 10 2004 or newer.
 using System;
+using System.IO;
 using System.Runtime.InteropServices;
 using System.Threading;
 
@@ -15,6 +16,8 @@ sealed class Recorder
     float pendingLoudness;
     int pendingFrames;
 
+    const int FramesPerLoudnessValue = RecordingFile.SampleRate / 20;
+
     public void Start(int processId, string path)
     {
         output = new RecordingFile(path);
@@ -28,13 +31,18 @@ sealed class Recorder
     {
         stopping = true;
         thread.Join();
-        output.Dispose();
+        // A full disk fails again here, but that error has already been reported and the file is still playable.
+        try { output.Dispose(); }
+        catch (IOException) { }
         return output.HasStarted;
     }
 
     void Capture(int processId)
     {
         IAudioClient client = null;
+        IAudioCaptureClient capture = null;
+        // Created outside the try, so it outlives the audio client that signals it.
+        using (var ready = new AutoResetEvent(false))
         try
         {
             client = Native.ActivateProcessLoopback(processId);
@@ -50,24 +58,20 @@ sealed class Recorder
             const uint loopback = 0x00020000, eventCallback = 0x00040000, autoConvert = 0x80000000;
             client.Initialize(0, loopback | eventCallback | autoConvert, 2000000, 0, ref format, IntPtr.Zero);
 
-            using (var ready = new AutoResetEvent(false))
+            client.SetEventHandle(ready.SafeWaitHandle.DangerousGetHandle());
+            var iid = typeof(IAudioCaptureClient).GUID;
+            object service;
+            client.GetService(ref iid, out service);
+            capture = (IAudioCaptureClient)service;
+            client.Start();
+            // The timeout is only so a stop request is noticed while the app is quiet.
+            while (!stopping)
             {
-                client.SetEventHandle(ready.SafeWaitHandle.DangerousGetHandle());
-                var iid = typeof(IAudioCaptureClient).GUID;
-                object service;
-                client.GetService(ref iid, out service);
-                var capture = (IAudioCaptureClient)service;
-                client.Start();
-                // The timeout is only so a stop request is noticed while the app is quiet.
-                while (!stopping)
-                {
-                    ready.WaitOne(100);
-                    Drain(capture);
-                }
-                client.Stop();
+                ready.WaitOne(100);
                 Drain(capture);
-                Marshal.ReleaseComObject(capture);
             }
+            client.Stop();
+            Drain(capture);
         }
         catch (Exception error)
         {
@@ -75,6 +79,7 @@ sealed class Recorder
         }
         finally
         {
+            if (capture != null) Marshal.ReleaseComObject(capture);
             if (client != null) Marshal.ReleaseComObject(client);
         }
     }
@@ -97,7 +102,8 @@ sealed class Recorder
             capture.ReleaseBuffer(frames);
 
             bool wasStarted = output.HasStarted;
-            output.Append(time / 1e7, samples);
+            const uint timestampError = 4;
+            output.Append((flags & timestampError) != 0 ? (double?)null : time / 1e7, samples);
             if (!output.HasStarted) continue;
             if (!wasStarted && OnAudioStarted != null) OnAudioStarted();
             ReportLoudness(samples);
@@ -109,7 +115,7 @@ sealed class Recorder
     {
         foreach (float sample in samples) pendingLoudness = Math.Max(pendingLoudness, Math.Abs(sample));
         pendingFrames += samples.Length / RecordingFile.Channels;
-        if (pendingFrames < 2400) return;
+        if (pendingFrames < FramesPerLoudnessValue) return;
         if (OnLoudness != null) OnLoudness(pendingLoudness);
         pendingLoudness = 0;
         pendingFrames = 0;
@@ -215,7 +221,9 @@ static class Native
             IActivateAudioInterfaceAsyncOperation operation;
             Marshal.ThrowExceptionForHR(ActivateAudioInterfaceAsync(
                 "VAD\\Process_Loopback", ref iid, ref parameters, completion, out operation));
-            completion.Done.WaitOne();
+            // Stopping waits for this thread, so an activation that never finishes would freeze the window.
+            if (!completion.Done.WaitOne(10000)) throw new TimeoutException("Windows didn't start the audio capture in time.");
+            completion.Done.Dispose();
 
             int result;
             object activated;

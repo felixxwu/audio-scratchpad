@@ -3,16 +3,16 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
-app="build/Audio Scratchpad.app"
-rm -rf build
+app="../build/Audio Scratchpad.app"
+rm -rf ../build
 mkdir -p "$app/Contents/MacOS"
 
 swiftc=(/usr/bin/xcrun --sdk macosx swiftc -O -parse-as-library -swift-version 5 -target arm64-apple-macos14.0)
 
-$swiftc Waveform.swift RecordingFile.swift WaveformCheck.swift -o build/waveform-check
-build/waveform-check
+$swiftc Waveform.swift RecordingFile.swift SelfCheck.swift -o ../build/self-check
+../build/self-check
 
-$swiftc AudioScratchpad.swift Waveform.swift RecordingFile.swift -o "$app/Contents/MacOS/Audio Scratchpad"
+$swiftc AudioScratchpad.swift Recorder.swift Waveform.swift RecordingFile.swift -o "$app/Contents/MacOS/Audio Scratchpad"
 
 cat > "$app/Contents/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>

@@ -3,7 +3,7 @@ using System;
 using System.IO;
 using System.Linq;
 
-static class Check
+static class SelfCheck
 {
     static void Require(bool condition, string message)
     {
@@ -29,12 +29,14 @@ static class Check
             recording.Append(102 + 4.0 / 48000, Stereo(0.5f, 0.5f));
             // Jitter under 10ms must not add silence.
             recording.Append(102 + 6.0 / 48000 + 0.005, Stereo(0.75f));
+            // A packet whose time Windows flags as unreliable carries straight on.
+            recording.Append(null, Stereo(0.125f));
         }
 
         var bytes = File.ReadAllBytes(path);
         Require(BitConverter.ToInt16(bytes, 20) == 3, "file should store float samples");
         Require(BitConverter.ToInt16(bytes, 34) == 32, "file should store 32-bit samples");
-        const int frames = 2 + 48000 + 2 + 1;
+        const int frames = 2 + 48000 + 2 + 1 + 1;
         Require(BitConverter.ToInt32(bytes, 40) == frames * 8, "should drop the lead-in and keep the pause");
         Require(BitConverter.ToInt32(bytes, 4) == 36 + frames * 8, "RIFF size should match");
         Require(bytes.Length == 44 + frames * 8, "file length should match its header");
@@ -45,6 +47,7 @@ static class Check
         Require(Enumerable.Range(2, 48000).All(f => left(f) == 0), "the pause should be silent");
         Require(left(48002) == 0.5f, "audio should resume after the pause");
         Require(left(48004) == 0.75f, "jitter should not add silence");
+        Require(left(48005) == 0.125f, "an unreliable time should not add silence");
         Require(Math.Abs(Waveform.Duration(path) - frames / 48000.0) < 1e-9, "duration should come from the header");
     }
 
@@ -64,16 +67,45 @@ static class Check
         Require(peaks.Skip(50).Take(49).All(p => p == 0), "silent half should be flat");
         Require(Waveform.Fit(new[] { 0.25f, 0.5f }).SequenceEqual(new[] { 0.5f, 1f }), "short input keeps every value");
         Require(Waveform.Fit(new[] { 0f, 0f, 0.5f, 0.25f }, 2).SequenceEqual(new[] { 0f, 1f }), "long input keeps each group's loudest");
+
+        var history = new LoudnessHistory();
+        for (int i = 0; i < 5000; i++) history.Append(i == 1234 ? 1f : 0.1f);
+        Require(history.Values.Length <= 800, "a long recording's history should stay small");
+        Require(history.Values.Max() == 1f, "merging should keep the loudest moment");
+    }
+
+    static void CheckUnknownFirstTime(string path)
+    {
+        using (var recording = new RecordingFile(path))
+        {
+            recording.Append(null, Stereo(1));
+            recording.Append(5000, Stereo(1));
+        }
+        Require(new FileInfo(path).Length == 44 + 2 * 8, "a first packet with no time should not add silence");
+    }
+
+    static void CheckSizeLimit(string path)
+    {
+        using (var recording = new RecordingFile(path, 16))
+        {
+            recording.Append(0, Stereo(1, 1));
+            bool stopped = false;
+            // An hour's gap must be refused before any of its silence reaches the disk.
+            try { recording.Append(3600, Stereo(1)); }
+            catch (IOException) { stopped = true; }
+            Require(stopped, "should stop before the file outgrows what a WAV can hold");
+        }
+        Require(new FileInfo(path).Length == 44 + 16, "a full recording should stay playable");
     }
 
     static void Main()
     {
-        foreach (Action<string> check in new Action<string>[] { CheckRecordingFile, CheckWaveform })
+        foreach (Action<string> check in new Action<string>[] { CheckRecordingFile, CheckWaveform, CheckUnknownFirstTime, CheckSizeLimit })
         {
             string path = Path.Combine(Path.GetTempPath(), "recording-check-" + Guid.NewGuid() + ".wav");
             try { check(path); }
             finally { File.Delete(path); }
         }
-        Console.WriteLine("Waveform check passed");
+        Console.WriteLine("Self-check passed");
     }
 }

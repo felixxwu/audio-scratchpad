@@ -9,20 +9,24 @@ sealed class RecordingFile : IDisposable
     public const int Channels = 2;
     const int BytesPerFrame = Channels * 4;
     const int HeaderSize = 44;
+    // WAV sizes are 32-bit, which limits a recording to about 3 hours.
+    public const long LargestDataSize = uint.MaxValue - HeaderSize;
 
     readonly string path;
+    readonly long maxDataSize;
     FileStream file;
     double? expectedTime;
 
     public bool HasStarted { get { return file != null; } }
 
-    public RecordingFile(string path)
+    public RecordingFile(string path, long maxDataSize = LargestDataSize)
     {
         this.path = path;
+        this.maxDataSize = maxDataSize;
     }
 
-    // `samples` are interleaved, and `time` is when the first of them played, in seconds.
-    public void Append(double time, float[] samples)
+    // `samples` are interleaved, and `playedAt` is when the first of them played in seconds, or null if that isn't known.
+    public void Append(double? playedAt, float[] samples)
     {
         int startFrame = 0;
         if (file == null)
@@ -34,27 +38,30 @@ sealed class RecordingFile : IDisposable
             WriteHeader(0);
         }
 
-        time += (double)startFrame / SampleRate;
+        double? time = playedAt + (double)startFrame / SampleRate ?? expectedTime;
         // Capture skips time while an app is quiet, so the missing time is written back as silence.
         // Gaps under 10ms are ordinary timing jitter, and filling them would add clicks.
-        if (expectedTime.HasValue && time - expectedTime.Value > 0.01)
-            WriteSilence((long)Math.Round((time - expectedTime.Value) * SampleRate));
+        long silentFrames = 0;
+        if (time - expectedTime > 0.01)
+            silentFrames = (long)Math.Round((time.Value - expectedTime.Value) * SampleRate);
 
         int frames = samples.Length / Channels - startFrame;
+        if (file.Length - HeaderSize + (silentFrames + frames) * BytesPerFrame > maxDataSize)
+            throw new IOException("The recording reached the largest size a WAV file can hold.");
+
+        WriteSilence(silentFrames);
         var bytes = new byte[frames * BytesPerFrame];
         Buffer.BlockCopy(samples, startFrame * BytesPerFrame, bytes, 0, bytes.Length);
         file.Write(bytes, 0, bytes.Length);
         expectedTime = time + (double)frames / SampleRate;
 
-        // ponytail: WAV sizes are 32-bit, so a recording ends at about 3 hours; move to RF64 if that's ever too short.
-        if (file.Length > uint.MaxValue - SampleRate * BytesPerFrame)
-            throw new IOException("The recording reached the largest size a WAV file can hold.");
         // Kept current after every write, so a crash still leaves a playable file.
         WriteHeader(file.Length - HeaderSize);
     }
 
     void WriteSilence(long frames)
     {
+        if (frames == 0) return;
         var silence = new byte[SampleRate * BytesPerFrame];
         for (long remaining = frames * BytesPerFrame; remaining > 0; remaining -= silence.Length)
             file.Write(silence, 0, (int)Math.Min(remaining, silence.Length));

@@ -3,98 +3,6 @@ import AVFoundation
 import ScreenCaptureKit
 import SwiftUI
 
-// Captures one app's audio from ScreenCaptureKit into a single file.
-final class Recorder: NSObject, SCStreamOutput, SCStreamDelegate {
-    var onUnexpectedStop: ((Error) -> Void)?
-    var onLoudness: ((Float) -> Void)?
-    var onAudioStarted: (() -> Void)?
-
-    private var pendingLoudness: Float = 0
-    private var pendingFrames = 0
-    private let queue = DispatchQueue(label: "recorder.audio")
-    private var stream: SCStream?
-    private var output: RecordingFile?
-
-    func start(filter: SCContentFilter, url: URL) async throws {
-        output = RecordingFile(url: url)
-
-        let config = SCStreamConfiguration()
-        config.capturesAudio = true
-        config.sampleRate = 48000
-        config.channelCount = 2
-        // ScreenCaptureKit always captures video too, so keep it as small and slow as possible.
-        config.width = 2
-        config.height = 2
-        config.minimumFrameInterval = CMTime(value: 1, timescale: 1)
-
-        let stream = SCStream(filter: filter, configuration: config, delegate: self)
-        try stream.addStreamOutput(self, type: .screen, sampleHandlerQueue: queue)
-        try stream.addStreamOutput(self, type: .audio, sampleHandlerQueue: queue)
-        self.stream = stream
-        do {
-            try await stream.startCapture()
-        } catch {
-            _ = await finishWriting()
-            throw error
-        }
-    }
-
-    // Returns false when no audio ever arrived, in which case no file is left behind.
-    func stop() async -> Bool {
-        try? await stream?.stopCapture()
-        stream = nil
-        return await finishWriting()
-    }
-
-    func stream(_ stream: SCStream, didOutputSampleBuffer buffer: CMSampleBuffer, of type: SCStreamOutputType) {
-        guard type == .audio, buffer.isValid, buffer.numSamples > 0, let output else { return }
-        let wasStarted = output.hasStarted
-        do {
-            try output.append(buffer)
-        } catch {
-            self.output = nil
-            onUnexpectedStop?(error)
-            return
-        }
-        guard output.hasStarted else { return }
-        if !wasStarted { onAudioStarted?() }
-        reportLoudness(of: buffer)
-    }
-
-    // Hands the window one loudness value per 50ms, so it can draw the waveform while recording.
-    private func reportLoudness(of buffer: CMSampleBuffer) {
-        let loudest = (try? buffer.withAudioBufferList { channels, _ in
-            channels.reduce(Float(0)) { result, channel in
-                guard let data = channel.mData else { return result }
-                let samples = UnsafeBufferPointer(start: data.assumingMemoryBound(to: Float.self),
-                                                  count: Int(channel.mDataByteSize) / MemoryLayout<Float>.size)
-                return samples.reduce(result) { max($0, abs($1)) }
-            }
-        }) ?? 0
-        pendingLoudness = max(pendingLoudness, loudest)
-        pendingFrames += buffer.numSamples
-        if pendingFrames >= 2400 {
-            onLoudness?(pendingLoudness)
-            pendingLoudness = 0
-            pendingFrames = 0
-        }
-    }
-
-    func stream(_ stream: SCStream, didStopWithError error: Error) {
-        onUnexpectedStop?(error)
-    }
-
-    private func finishWriting() async -> Bool {
-        await withCheckedContinuation { continuation in
-            queue.async { [self] in
-                let saved = output?.hasStarted ?? false
-                output = nil
-                continuation.resume(returning: saved)
-            }
-        }
-    }
-}
-
 struct Recording: Identifiable {
     let url: URL
     let duration: TimeInterval
@@ -120,15 +28,15 @@ struct AudioSource: Identifiable {
 // The waveform of the recording in progress, kept apart so its updates only redraw that one row.
 final class LiveWaveform: ObservableObject {
     @Published private(set) var bars: [Float] = []
-    private var values: [Float] = []
+    private var history = LoudnessHistory()
 
     func append(_ value: Float) {
-        values.append(value)
-        bars = fitWaveform(values)
+        history.append(value)
+        bars = fitWaveform(history.values)
     }
 
     func reset() {
-        values = []
+        history = LoudnessHistory()
         bars = []
     }
 }
@@ -141,6 +49,7 @@ final class AppModel: NSObject, ObservableObject, AVAudioPlayerDelegate {
     @Published var recordings: [Recording] = []
     @Published var startedAt: Date?
     @Published var isStarting = false
+    @Published var isStopping = false
     @Published var isWaitingForAudio = false
     @Published var message: String?
     @Published var needsPermission = false
@@ -177,14 +86,18 @@ final class AppModel: NSObject, ObservableObject, AVAudioPlayerDelegate {
         func created(_ url: URL) -> Date {
             (try? url.resourceValues(forKeys: [.creationDateKey]).creationDate) ?? .distantPast
         }
-        recordings = urls
-            .filter { ["wav", "m4a"].contains($0.pathExtension) && $0 != currentURL }
+        let listed = urls
+            .filter { $0.pathExtension == "wav" && $0 != currentURL }
             .sorted { created($0) > created($1) }
-            .map { url in
-                let file = try? AVAudioFile(forReading: url)
-                let duration = file.map { Double($0.length) / $0.processingFormat.sampleRate } ?? 0
-                return Recording(url: url, duration: duration)
-            }
+        // Opening every file is slow, and this runs each time the app comes to the front.
+        guard listed != recordings.map(\.url) else { return }
+        let known = Dictionary(uniqueKeysWithValues: recordings.map { ($0.url, $0) })
+        recordings = listed.map { url in
+            if let recording = known[url] { return recording }
+            let file = try? AVAudioFile(forReading: url)
+            let duration = file.map { Double($0.length) / $0.processingFormat.sampleRate } ?? 0
+            return Recording(url: url, duration: duration)
+        }
     }
 
     func loadWaveform(for url: URL) async {
@@ -194,7 +107,7 @@ final class AppModel: NSObject, ObservableObject, AVAudioPlayerDelegate {
     }
 
     func start() async {
-        guard let source = sources.first(where: { $0.id == selectedSource }), !isStarting, !isCapturing else { return }
+        guard let source = sources.first(where: { $0.id == selectedSource }), !isStarting, !isStopping, !isCapturing else { return }
         isStarting = true
         defer { isStarting = false }
         message = nil
@@ -211,8 +124,11 @@ final class AppModel: NSObject, ObservableObject, AVAudioPlayerDelegate {
             let filter = SCContentFilter(display: display, including: [app], exceptingWindows: [])
             let url = newFileURL(appName: source.name)
             let recorder = Recorder()
-            recorder.onUnexpectedStop = { [weak self] error in
-                Task { await self?.stop(reason: error.localizedDescription) }
+            recorder.onUnexpectedStop = { [weak self, weak recorder] error in
+                Task { @MainActor in
+                    guard let self, self.recorder === recorder else { return }
+                    await self.stop(reason: error.localizedDescription)
+                }
             }
             let live = self.live
             live.reset()
@@ -240,6 +156,8 @@ final class AppModel: NSObject, ObservableObject, AVAudioPlayerDelegate {
 
     func stop(reason: String? = nil) async {
         guard let recorder else { return }
+        isStopping = true
+        defer { isStopping = false }
         self.recorder = nil
         startedAt = nil
         isWaitingForAudio = false
@@ -250,6 +168,7 @@ final class AppModel: NSObject, ObservableObject, AVAudioPlayerDelegate {
         } else if !saved {
             message = "No sound came from that app, so nothing was saved."
         }
+        refreshSources()
         refreshRecordings()
     }
 
@@ -332,7 +251,14 @@ final class AppModel: NSObject, ObservableObject, AVAudioPlayerDelegate {
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.dateFormat = "yyyy-MM-dd HH.mm.ss"
         let safeName = appName.replacingOccurrences(of: "/", with: "-").replacingOccurrences(of: ":", with: "-")
-        return folder.appendingPathComponent("\(safeName) \(formatter.string(from: Date())).wav")
+        let name = "\(safeName) \(formatter.string(from: Date()))"
+        var url = folder.appendingPathComponent("\(name).wav")
+        var copy = 2
+        while FileManager.default.fileExists(atPath: url.path) {
+            url = folder.appendingPathComponent("\(name) \(copy).wav")
+            copy += 1
+        }
+        return url
     }
 
     private func show(_ error: Error) {
@@ -548,7 +474,7 @@ struct ContentView: View {
                     .frame(minWidth: 70)
             }
             .controlSize(.large)
-            .disabled(model.selectedSource == nil || model.isStarting)
+            .disabled(model.selectedSource == nil || model.isStarting || model.isStopping)
         }
     }
 
@@ -598,7 +524,7 @@ struct ContentView: View {
     }
 }
 
-// Quitting mid-recording would leave an unreadable file, so hold the quit until it is saved.
+// Holds the quit until recording has stopped, so the last moments of audio still reach the file.
 final class AppDelegate: NSObject, NSApplicationDelegate {
     var model: AppModel?
 

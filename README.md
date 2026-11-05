@@ -69,3 +69,22 @@ windows\build.cmd
 The script runs the self-checks and builds the app to `build`.
 
 Every push to `main` and every pull request builds both apps and runs their self-checks. Publishing a GitHub release does the same and attaches the apps to that release.
+
+## Code signing policy
+
+Current Windows releases are unsigned. This project is applying to [SignPath Foundation](https://signpath.org) for free code signing, and this policy applies once it's approved:
+
+Free code signing provided by [SignPath.io](https://about.signpath.io), certificate by [SignPath Foundation](https://signpath.org).
+
+**Team roles**
+
+- Committers and reviewers: [Felix Wu](https://github.com/felixxwu)
+- Approvers: [Felix Wu](https://github.com/felixxwu)
+
+**Privacy policy**
+
+This program will not transfer any information to other networked systems unless specifically requested by the user or the person installing or operating it.
+
+## License
+
+[MIT](LICENSE)

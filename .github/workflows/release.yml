@@ -29,8 +29,10 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
-      - run: windows\build.cmd
+      - run: windows\build.cmd %TAG%
         shell: cmd
+        env:
+          TAG: ${{ github.event.release.tag_name }}
       - name: Attach the app to the release
         if: github.event_name == 'release'
         shell: bash

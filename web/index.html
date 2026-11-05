@@ -1,0 +1,806 @@
+<!doctype html>
+<!-- The browser version of Audio Scratchpad: records whatever the browser's sharing popup offers to .wav files kept in browser storage. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Audio Scratchpad</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><circle cx='8' cy='8' r='6' fill='%23c7e3ff'/></svg>">
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #f5f5f4;
+    --text: #1d1d1b;
+    --muted: #6b6b68;
+    --line: #d9d9d6;
+    --control: #e7e7e4;
+    --accent: #2b6cb0;
+    --record: #d12f2f;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #2a2826;
+      --text: #f2f1ef;
+      --muted: #a5a29d;
+      --line: #454340;
+      --control: #3a3835;
+      --accent: #c7e3ff;
+      --record: #ff6b5e;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0 auto;
+    padding: 16px;
+    max-width: 640px;
+    background: var(--bg);
+    color: var(--text);
+    font: 15px/1.4 system-ui, sans-serif;
+  }
+  h1 { margin: 0 0 16px; font-size: 16px; font-weight: 600; color: var(--muted); }
+  button, a.icon { color: var(--accent); }
+  .controls { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+  #source { flex: 1; min-width: 160px; color: var(--muted); }
+  #timer { color: var(--record); font-variant-numeric: tabular-nums; }
+  #record {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 110px;
+    min-height: 40px;
+    padding: 0 18px;
+    justify-content: center;
+    border: 0;
+    border-radius: 20px;
+    background: var(--control);
+    font: inherit;
+    cursor: pointer;
+  }
+  #record:disabled { opacity: 0.5; cursor: default; }
+  #message { margin: 12px 0 0; color: var(--muted); }
+  #message:empty { display: none; }
+  hr { margin: 16px 0 4px; border: 0; border-top: 1px solid var(--line); }
+  #list { margin: 0; padding: 0; list-style: none; }
+  #list li {
+    display: grid;
+    grid-template-columns: 32px minmax(0, 1fr) 44px 32px 32px;
+    align-items: center;
+    gap: 4px;
+    padding: 6px 0;
+    border-bottom: 1px solid var(--line);
+  }
+  #list li:last-child { border-bottom: 0; }
+  #list canvas { display: block; width: 100%; height: 28px; cursor: pointer; touch-action: none; }
+  #list li.live canvas { cursor: default; }
+  .time { color: var(--muted); font-variant-numeric: tabular-nums; text-align: right; }
+  .icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    padding: 0;
+    border: 0;
+    border-radius: 6px;
+    background: none;
+    cursor: pointer;
+  }
+  .icon:hover { background: var(--control); }
+  a.icon { cursor: grab; }
+  .dot { color: var(--record); cursor: default; }
+  .dot:hover { background: none; }
+  svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+  svg.solid { fill: currentColor; stroke: none; }
+  #empty { padding: 48px 0; color: var(--muted); text-align: center; }
+  footer { margin-top: 16px; color: var(--muted); font-size: 13px; }
+  footer a { color: inherit; }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+</style>
+</head>
+<body>
+<h1>Audio Scratchpad</h1>
+<div class="controls">
+  <span id="source"></span>
+  <span id="timer"></span>
+  <button id="record" type="button"></button>
+</div>
+<p id="message" role="status"></p>
+<hr>
+<ul id="list"></ul>
+<p id="empty" hidden>No recordings yet</p>
+<footer>
+  Recordings stay in this browser until you download them, and clearing your browsing data deletes them.
+  <a href="https://github.com/felixxwu/audio-scratchpad/releases/latest">Get the Mac or Windows app</a>
+</footer>
+
+<!-- Browsers only run these two from their own URL, so the page turns each into one when it starts. -->
+<script type="text/plain" id="tap-code">
+  // Runs on the audio thread and passes each slice of sound on as left/right pairs. Pauses arrive as silence.
+  registerProcessor('tap', class extends AudioWorkletProcessor {
+    process([input]) {
+      const [left, right = left] = input;
+      const frames = left?.length ?? 128;
+      const samples = new Float32Array(frames * 2);
+      for (let frame = 0; left && frame < frames; frame++) {
+        samples[frame * 2] = left[frame];
+        samples[frame * 2 + 1] = right[frame];
+      }
+      this.port.postMessage(samples, [samples.buffer]);
+      return true;
+    }
+  });
+</script>
+<script type="text/plain" id="writer-code">
+  // Saves captured audio to a 32-bit float .wav in browser storage, starting at the first non-zero sample.
+  const sampleRate = 48000;
+  const channels = 2;
+  const headerSize = 44;
+  const framesPerLoudnessValue = sampleRate / 20;
+
+  let name;
+  // WAV sizes are 32-bit, which limits a stereo recording to about 3 hours.
+  let maxDataSize = 2 ** 32 - 1 - headerSize;
+  let file;
+  let dataSize = 0;
+  let failed = false;
+  let pendingLoudness = 0;
+  let pendingFrames = 0;
+
+  function header() {
+    const view = new DataView(new ArrayBuffer(headerSize));
+    const text = (offset, value) => [...value].forEach((c, i) => view.setUint8(offset + i, c.charCodeAt(0)));
+    text(0, 'RIFF');
+    view.setUint32(4, 36 + dataSize, true);
+    text(8, 'WAVEfmt ');
+    view.setUint32(16, 16, true);
+    view.setUint16(20, 3, true); // IEEE float
+    view.setUint16(22, channels, true);
+    view.setUint32(24, sampleRate, true);
+    view.setUint32(28, sampleRate * channels * 4, true);
+    view.setUint16(32, channels * 4, true);
+    view.setUint16(34, 32, true);
+    text(36, 'data');
+    view.setUint32(40, dataSize, true);
+    return view;
+  }
+
+  async function createFile() {
+    const folder = await navigator.storage.getDirectory();
+    let chosen = `${name}.wav`;
+    for (let copy = 2; await exists(folder, chosen); copy++) chosen = `${name} ${copy}.wav`;
+    const handle = await folder.getFileHandle(chosen, { create: true });
+    file = await handle.createSyncAccessHandle();
+    file.write(header(), { at: 0 });
+    postMessage({ type: 'started', name: chosen });
+  }
+
+  async function exists(folder, fileName) {
+    try {
+      await folder.getFileHandle(fileName);
+      return true;
+    } catch (error) {
+      if (error.name === 'NotFoundError') return false;
+      throw error;
+    }
+  }
+
+  async function append(samples) {
+    if (!file) {
+      const first = samples.findIndex((sample) => sample !== 0);
+      if (first < 0) return;
+      samples = samples.subarray(first - first % channels);
+      await createFile();
+    }
+    if (dataSize + samples.byteLength > maxDataSize) {
+      throw new Error('The recording reached the largest size a WAV file can hold.');
+    }
+    const written = file.write(samples, { at: headerSize + dataSize });
+    if (written < samples.byteLength) {
+      file.truncate(headerSize + dataSize);
+      throw new Error('Browser storage is full.');
+    }
+    dataSize += written;
+    // Kept current after every write, so a crash still leaves a playable file.
+    file.write(header(), { at: 0 });
+    reportLoudness(samples);
+  }
+
+  function reportLoudness(samples) {
+    for (const sample of samples) pendingLoudness = Math.max(pendingLoudness, Math.abs(sample));
+    pendingFrames += samples.length / channels;
+    if (pendingFrames < framesPerLoudnessValue) return;
+    postMessage({ type: 'loudness', value: pendingLoudness });
+    pendingLoudness = 0;
+    pendingFrames = 0;
+  }
+
+  // Creating the file is asynchronous, so audio waits its turn here to stay in order.
+  let queue = Promise.resolve();
+  function enqueue(job) {
+    queue = queue.then(job).catch((error) => {
+      failed = true;
+      postMessage({ type: 'failed', message: error.name === 'QuotaExceededError' ? 'Browser storage is full.' : error.message });
+    });
+  }
+
+  onmessage = ({ data }) => {
+    if (data.type === 'start') {
+      name = data.name;
+      maxDataSize = data.maxDataSize ?? maxDataSize;
+      data.port.onmessage = ({ data: samples }) => enqueue(async () => {
+        if (!failed) await append(samples);
+      });
+    } else if (data.type === 'stop') {
+      enqueue(() => {
+        file?.close();
+        postMessage({ type: 'stopped', saved: file !== undefined });
+      });
+    }
+  };
+</script>
+
+<script>
+const SAMPLE_RATE = 48000;
+const HEADER_SIZE = 44;
+const BYTES_PER_FRAME = 8;
+const BARS = 400;
+
+const scriptUrl = (id) =>
+  URL.createObjectURL(new Blob([document.getElementById(id).textContent], { type: 'text/javascript' }));
+const tapUrl = scriptUrl('tap-code');
+const writerUrl = scriptUrl('writer-code');
+
+const icons = {
+  record: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4" fill="currentColor"/></svg>',
+  stop: '<svg class="solid" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="1.5"/></svg>',
+  play: '<svg class="solid" viewBox="0 0 24 24"><path d="M7 4.5v15l13-7.5z"/></svg>',
+  download: '<svg viewBox="0 0 24 24"><path d="M12 4v11m-5-5 5 5 5-5M5 20h14"/></svg>',
+  trash: '<svg viewBox="0 0 24 24"><path d="M4 7h16M9 7V4h6v3m3 0-1 13H7L6 7m4 4v5m4-5v5"/></svg>',
+  dot: '<svg class="solid" viewBox="0 0 24 24"><circle cx="12" cy="12" r="7"/></svg>',
+};
+
+// Holds a recording's loudness as it grows, merging older values so redrawing stays quick however long it runs.
+class LoudnessHistory {
+  values = [];
+  #reportsPerValue = 1;
+  #pendingReports = 0;
+
+  append(value, bars = BARS) {
+    if (this.#pendingReports === 0) this.values.push(value);
+    else this.values[this.values.length - 1] = Math.max(this.values[this.values.length - 1], value);
+    this.#pendingReports++;
+    if (this.#pendingReports < this.#reportsPerValue) return;
+    this.#pendingReports = 0;
+    if (this.values.length < bars * 2) return;
+    this.values = this.values.filter((_, i) => i % 2 === 0).map((value, i) => Math.max(value, this.values[i * 2 + 1]));
+    this.#reportsPerValue *= 2;
+  }
+}
+
+// Squeezes loudness values into at most `bars`, scaled to the loudest so quiet audio is still readable.
+function fitWaveform(values, bars = BARS) {
+  let fitted = values;
+  if (values.length > bars) {
+    fitted = new Array(bars).fill(0);
+    values.forEach((value, i) => {
+      const bar = Math.floor((i * bars) / values.length);
+      fitted[bar] = Math.max(fitted[bar], value);
+    });
+  }
+  const loudest = Math.max(0, ...fitted);
+  return loudest > 0 ? fitted.map((value) => value / loudest) : fitted;
+}
+
+// Reduces a recording to a short list of loudness values, one for each bar of the drawn waveform.
+async function waveformPeaks(file, bars = BARS) {
+  const frames = Math.floor((file.size - HEADER_SIZE) / BYTES_PER_FRAME);
+  const peaks = new Array(bars).fill(0);
+  const framesPerRead = 65536;
+  for (let position = 0; position < frames; position += framesPerRead) {
+    const start = HEADER_SIZE + position * BYTES_PER_FRAME;
+    const bytes = await file.slice(start, start + framesPerRead * BYTES_PER_FRAME).arrayBuffer();
+    const samples = new Float32Array(bytes, 0, Math.floor(bytes.byteLength / 4));
+    for (let i = 0; i < samples.length; i++) {
+      const bar = Math.min(bars - 1, Math.floor(((position + (i >> 1)) * bars) / frames));
+      peaks[bar] = Math.max(peaks[bar], Math.abs(samples[i]));
+    }
+  }
+  return fitWaveform(peaks, bars);
+}
+
+// Connects a sound source to the file writer. The audio thread talks to the writer directly, so a busy page can't delay it.
+async function startWriter(context, sourceNode, worker, name) {
+  await context.audioWorklet.addModule(tapUrl);
+  const tap = new AudioWorkletNode(context, 'tap', {
+    channelCount: 2,
+    channelCountMode: 'explicit',
+    channelInterpretation: 'speakers',
+  });
+  worker.postMessage({ type: 'start', name, port: tap.port }, [tap.port]);
+  sourceNode.connect(tap);
+  // The tap only runs while connected to the output. It writes nothing there, so this makes no sound.
+  tap.connect(context.destination);
+  return tap;
+}
+
+function drawWaveform(canvas, peaks, playhead) {
+  const scale = devicePixelRatio;
+  const width = Math.round(canvas.clientWidth * scale);
+  const height = Math.round(canvas.clientHeight * scale);
+  if (canvas.width !== width || canvas.height !== height) {
+    canvas.width = width;
+    canvas.height = height;
+  }
+  const paint = canvas.getContext('2d');
+  paint.clearRect(0, 0, width, height);
+  if (!peaks?.length) return;
+  const style = getComputedStyle(canvas);
+  paint.fillStyle = style.getPropertyValue('--accent');
+  const barEdge = (i) => Math.round((i * width) / peaks.length);
+  peaks.forEach((peak, i) => {
+    const barHeight = Math.max(scale, peak * height);
+    // Whole-pixel edges, because blurred edges between bars show up as faint stripes.
+    paint.fillRect(barEdge(i), (height - barHeight) / 2, barEdge(i + 1) - barEdge(i), barHeight);
+  });
+  if (playhead !== undefined) {
+    paint.fillStyle = style.getPropertyValue('--text');
+    paint.fillRect(width * playhead - scale, 0, 2 * scale, height);
+  }
+}
+
+const formatTime = (seconds) => {
+  const whole = Math.floor(seconds);
+  return `${Math.floor(whole / 60)}:${String(whole % 60).padStart(2, '0')}`;
+};
+
+function runApp() {
+  const element = (id) => document.getElementById(id);
+  const recordButton = element('record');
+  const list = element('list');
+  const supported = navigator.mediaDevices?.getDisplayMedia && navigator.storage?.getDirectory;
+
+  // One of: idle, starting, waiting, recording, stopping.
+  let state = 'idle';
+  let capture = null;
+  let startedAt = 0;
+  let timerInterval = null;
+  let liveRow = null;
+  let rows = new Map();
+  let playing = null;
+
+  const showMessage = (text = '') => { element('message').textContent = text; };
+
+  function updateControls() {
+    const capturing = state === 'waiting' || state === 'recording';
+    recordButton.disabled = !supported || state === 'starting' || state === 'stopping';
+    recordButton.innerHTML = capturing ? icons.stop : icons.record;
+    recordButton.append(state === 'waiting' ? 'waiting for audio...' : capturing ? 'Stop' : 'Record');
+    element('source').textContent = capture?.sourceName ? `Source: ${capture.sourceName}` : 'Choose a source when you record';
+    element('timer').textContent = state === 'recording' ? formatTime((Date.now() - startedAt) / 1000) : '';
+    element('empty').hidden = rows.size > 0 || state === 'recording';
+  }
+
+  function showRows() {
+    const ordered = [...rows.values()].sort((a, b) => b.file.lastModified - a.file.lastModified || (a.name < b.name ? 1 : -1));
+    list.replaceChildren(...(liveRow ? [liveRow.element] : []), ...ordered.map((row) => row.element));
+    updateControls();
+    redraw();
+  }
+
+  function redraw() {
+    if (liveRow) drawWaveform(liveRow.canvas, fitWaveform(liveRow.history.values));
+    for (const row of rows.values()) drawWaveform(row.canvas, row.peaks, playing?.row === row ? playhead() : undefined);
+  }
+
+  const playhead = () => (playing.row.duration > 0 ? Math.min(playing.audio.currentTime / playing.row.duration, 1) : 0);
+
+  async function refreshRecordings() {
+    const found = new Map();
+    const folder = await navigator.storage.getDirectory();
+    for await (const [name, handle] of folder.entries()) {
+      if (!name.endsWith('.wav') || name === capture?.fileName) continue;
+      try {
+        found.set(name, await handle.getFile());
+      } catch {
+        // Another tab is still recording this one, so it joins the list once finished.
+      }
+    }
+    const next = new Map();
+    for (const [name, file] of found) {
+      const known = rows.get(name);
+      next.set(name, known?.file.size === file.size ? known : createRow(name, file));
+    }
+    for (const [name, row] of rows) {
+      if (next.get(name) === row) continue;
+      if (playing?.row === row) stopPlayback();
+      URL.revokeObjectURL(row.url);
+    }
+    rows = next;
+    showRows();
+  }
+
+  function createRow(name, file) {
+    const row = {
+      name,
+      file,
+      url: URL.createObjectURL(file),
+      duration: Math.max(0, file.size - HEADER_SIZE) / BYTES_PER_FRAME / SAMPLE_RATE,
+      peaks: null,
+      element: document.createElement('li'),
+    };
+    const title = name.replace(/\.wav$/, '');
+    row.element.innerHTML = `
+      <button class="icon play" type="button" aria-label="Play">${icons.play}</button>
+      <canvas role="img"></canvas>
+      <span class="time">${formatTime(Math.round(row.duration))}</span>
+      <a class="icon" draggable="true" aria-label="Download" title="Click to download, or drag into another app">${icons.download}</a>
+      <button class="icon delete" type="button" aria-label="Delete" title="Delete">${icons.trash}</button>`;
+    row.canvas = row.element.querySelector('canvas');
+    row.canvas.title = title;
+    row.canvas.setAttribute('aria-label', title);
+    row.playButton = row.element.querySelector('.play');
+    row.playButton.onclick = () => (playing?.row === row ? stopPlayback() : play(row));
+    row.element.querySelector('.delete').onclick = () => deleteRecording(row);
+
+    const download = row.element.querySelector('a');
+    download.href = row.url;
+    download.download = name;
+    // Chrome and Edge turn this into a real file when it's dropped onto another app.
+    download.ondragstart = (event) => event.dataTransfer.setData('DownloadURL', `audio/wav:${name}:${row.url}`);
+
+    const seekFromPointer = (event) => {
+      const box = row.canvas.getBoundingClientRect();
+      seek(row, (event.clientX - box.left) / box.width);
+    };
+    row.canvas.onpointerdown = (event) => {
+      row.canvas.setPointerCapture(event.pointerId);
+      seekFromPointer(event);
+    };
+    row.canvas.onpointermove = (event) => {
+      if (row.canvas.hasPointerCapture(event.pointerId)) seekFromPointer(event);
+    };
+
+    waveformPeaks(file).then((peaks) => {
+      row.peaks = peaks;
+      drawWaveform(row.canvas, peaks, playing?.row === row ? playhead() : undefined);
+    }).catch(() => {});
+    return row;
+  }
+
+  function play(row) {
+    stopPlayback();
+    const audio = new Audio(row.url);
+    audio.onended = stopPlayback;
+    audio.play().catch((error) => {
+      if (error.name !== 'AbortError') showMessage(`Couldn't play that recording: ${error.message}`);
+      if (playing?.audio === audio) stopPlayback();
+    });
+    playing = { row, audio };
+    row.playButton.innerHTML = icons.stop;
+    row.playButton.setAttribute('aria-label', 'Stop playing');
+    const animate = () => {
+      if (playing?.audio !== audio) return;
+      drawWaveform(row.canvas, row.peaks, playhead());
+      requestAnimationFrame(animate);
+    };
+    animate();
+  }
+
+  function stopPlayback() {
+    if (!playing) return;
+    const { row, audio } = playing;
+    playing = null;
+    audio.pause();
+    row.playButton.innerHTML = icons.play;
+    row.playButton.setAttribute('aria-label', 'Play');
+    drawWaveform(row.canvas, row.peaks);
+  }
+
+  function seek(row, fraction) {
+    if (playing?.row !== row) play(row);
+    // Stay just short of the end, so dragging there doesn't finish playback mid-drag.
+    playing.audio.currentTime = row.duration * Math.min(Math.max(fraction, 0), 0.999);
+  }
+
+  async function deleteRecording(row) {
+    // There's no trash to recover from in browser storage, unlike the desktop apps.
+    if (!confirm(`Delete "${row.name}"? This can't be undone.`)) return;
+    if (playing?.row === row) stopPlayback();
+    try {
+      const folder = await navigator.storage.getDirectory();
+      await folder.removeEntry(row.name);
+    } catch (error) {
+      showMessage(`Couldn't delete that recording: ${error.message}`);
+    }
+    await refreshRecordings();
+  }
+
+  async function startRecording() {
+    state = 'starting';
+    showMessage();
+    stopPlayback();
+    updateControls();
+    navigator.storage.persist?.().catch(() => {});
+
+    const context = new AudioContext({ sampleRate: SAMPLE_RATE });
+    const releaseAudio = (stream) => {
+      stream?.getTracks().forEach((track) => track.stop());
+      if (context.state !== 'closed') context.close();
+    };
+    let stream;
+    let current;
+    try {
+      stream = await navigator.mediaDevices.getDisplayMedia({
+        // The video is never used, but browsers won't share sound without it.
+        video: { displaySurface: 'browser', frameRate: { max: 1 } },
+        audio: {
+          autoGainControl: false,
+          echoCancellation: false,
+          noiseSuppression: false,
+          sampleRate: SAMPLE_RATE,
+          channelCount: 2,
+          // When recording all system sound, leave out anything this page plays.
+          restrictOwnAudio: true,
+        },
+        // Offer one window's sound where the system can, and all system sound otherwise.
+        windowAudio: 'window',
+        systemAudio: 'include',
+        selfBrowserSurface: 'exclude',
+      });
+      const track = stream.getAudioTracks()[0];
+      if (!track) {
+        releaseAudio(stream);
+        state = 'idle';
+        showMessage('No sound was shared. Choose a tab, or turn on the audio switch in the sharing popup. Firefox and Safari can only share video.');
+        updateControls();
+        return;
+      }
+      await context.resume();
+
+      const surface = stream.getVideoTracks()[0]?.getSettings().displaySurface;
+      const sourceName = { browser: 'Tab', window: 'Window', monitor: 'Screen' }[surface] ?? 'Browser';
+      const stamp = new Date();
+      const pad = (value) => String(value).padStart(2, '0');
+      const name = `${sourceName} ${stamp.getFullYear()}-${pad(stamp.getMonth() + 1)}-${pad(stamp.getDate())} ${pad(stamp.getHours())}.${pad(stamp.getMinutes())}.${pad(stamp.getSeconds())}`;
+
+      const worker = new Worker(writerUrl);
+      current = { worker, stream, context, sourceName, fileName: null };
+      current.source = context.createMediaStreamSource(stream);
+      current.release = () => releaseAudio(stream);
+      worker.onmessage = ({ data }) => handleWriterMessage(current, data);
+      worker.onerror = (event) => {
+        worker.terminate();
+        finishRecording(current, false, event.message);
+      };
+      track.onended = () => stopRecording(current);
+
+      capture = current;
+      liveRow = createLiveRow();
+      state = 'waiting';
+      showRows();
+      current.tap = await startWriter(context, current.source, worker, name);
+    } catch (error) {
+      // Stopped while still starting, so the stop has already cleaned up.
+      if (current && state === 'stopping') return;
+      releaseAudio(stream);
+      if (capture) {
+        capture.worker.terminate();
+        capture = null;
+        liveRow = null;
+      }
+      state = 'idle';
+      // A cancelled popup also reports "not allowed", and needs no message. The system refusing does.
+      if (error.name !== 'NotAllowedError' || /system/i.test(error.message)) {
+        showMessage(/system/i.test(error.message)
+          ? 'Your computer blocked screen sharing for this browser. Allow it in your system privacy settings, then try again.'
+          : `Couldn't start recording: ${error.message}`);
+      }
+      showRows();
+    }
+  }
+
+  function createLiveRow() {
+    const row = { element: document.createElement('li'), history: new LoudnessHistory() };
+    row.element.className = 'live';
+    row.element.innerHTML = `
+      <span class="icon dot" role="img" aria-label="Recording">${icons.dot}</span>
+      <canvas role="img" aria-label="Waveform of the recording in progress"></canvas>
+      <span class="time"></span><span></span><span></span>`;
+    row.canvas = row.element.querySelector('canvas');
+    return row;
+  }
+
+  function handleWriterMessage(current, data) {
+    if (data.type === 'started') {
+      current.fileName = data.name;
+      state = 'recording';
+      startedAt = Date.now();
+      timerInterval = setInterval(() => {
+        updateControls();
+        if (liveRow) liveRow.element.querySelector('.time').textContent = formatTime((Date.now() - startedAt) / 1000);
+      }, 250);
+      updateControls();
+    } else if (data.type === 'loudness' && liveRow) {
+      liveRow.history.append(data.value);
+      drawWaveform(liveRow.canvas, fitWaveform(liveRow.history.values));
+    } else if (data.type === 'failed') {
+      stopRecording(current, data.message);
+    } else if (data.type === 'stopped') {
+      current.worker.terminate();
+      finishRecording(current, data.saved, current.stopReason);
+    }
+  }
+
+  function stopRecording(current, reason) {
+    if (capture !== current || state === 'stopping') return;
+    state = 'stopping';
+    current.stopReason = reason;
+    current.tap?.disconnect();
+    current.release();
+    clearInterval(timerInterval);
+    updateControls();
+    current.worker.postMessage({ type: 'stop' });
+  }
+
+  function finishRecording(current, saved, reason) {
+    if (capture !== current) return;
+    clearInterval(timerInterval);
+    if (state !== 'stopping') current.release();
+    capture = null;
+    liveRow = null;
+    state = 'idle';
+    if (reason) showMessage(`Recording stopped: ${reason}`);
+    else if (!saved) showMessage('No sound came from that source, so nothing was saved.');
+    refreshRecordings().catch((error) => showMessage(error.message));
+  }
+
+  recordButton.onclick = () => {
+    if (state === 'idle') startRecording();
+    else stopRecording(capture);
+  };
+  new ResizeObserver(redraw).observe(list);
+  matchMedia('(prefers-color-scheme: dark)').addEventListener('change', redraw);
+
+  updateControls();
+  if (!supported) {
+    showMessage("This browser can't record here. Use a desktop version of Chrome or Edge, or get the Mac or Windows app.");
+    element('empty').hidden = true;
+    return;
+  }
+  addEventListener('focus', () => refreshRecordings().catch(() => {}));
+  refreshRecordings().catch((error) => showMessage(`Couldn't open browser storage: ${error.message}`));
+}
+
+// Fails CI if waveforms are drawn wrongly, or recordings don't start, stop and store samples as intended.
+async function runSelfCheck() {
+  const check = (condition, what) => {
+    if (!condition) throw new Error(what);
+  };
+  const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+  const folder = await navigator.storage.getDirectory();
+  const prefix = `self-check ${Date.now()}`;
+
+  // Sends left/right pairs through the real writer, as the audio thread would.
+  function openWriter(name, maxDataSize) {
+    const worker = new Worker(writerUrl);
+    const channel = new MessageChannel();
+    const messages = [];
+    worker.onmessage = ({ data }) => messages.push(data);
+    worker.postMessage({ type: 'start', name, maxDataSize, port: channel.port2 }, [channel.port2]);
+    return {
+      worker,
+      messages,
+      send: (values) => channel.port1.postMessage(new Float32Array(values.flatMap((v) => [v, v]))),
+      async stop() {
+        await sleep(100);
+        worker.postMessage({ type: 'stop' });
+        while (!messages.some((m) => m.type === 'stopped')) await sleep(10);
+        worker.terminate();
+        return messages.find((m) => m.type === 'stopped').saved;
+      },
+    };
+  }
+  const readFile = async (fileName) => (await folder.getFileHandle(fileName)).getFile();
+  const frames = async (fileName) => new Float32Array((await (await readFile(fileName)).arrayBuffer()).slice(HEADER_SIZE));
+
+  const silent = openWriter(`${prefix} silent`);
+  silent.send([0, 0, 0, 0]);
+  check((await silent.stop()) === false, 'silence alone should not save a recording');
+  let missing = false;
+  await readFile(`${prefix} silent.wav`).catch(() => { missing = true; });
+  check(missing, 'silence alone should not create a file');
+
+  const fileName = `${prefix} main.wav`;
+  const writer = openWriter(`${prefix} main`);
+  writer.send([0, 0, 1.5, 0.25]);
+  writer.send([0, 0.5]);
+  check(await writer.stop(), 'a non-zero sample should save the recording');
+  const samples = await frames(fileName);
+  check(samples.length === 8, `should drop the lead-in, got ${samples.length} samples`);
+  check(samples[0] === 1.5 && samples[1] === 1.5, 'should start on the first non-zero sample and keep peaks above full scale');
+  check(samples[2] === 0.25 && samples[4] === 0 && samples[6] === 0.5, 'should keep later samples and silence');
+
+  const view = new DataView(await (await readFile(fileName)).arrayBuffer());
+  check(view.getUint32(4, true) === 36 + 32, 'header should store the right file size');
+  check(view.getUint16(20, true) === 3, 'file should store float samples');
+  check(view.getUint16(22, true) === 2, 'file should be stereo');
+  check(view.getUint32(24, true) === 48000, 'file should be 48 kHz');
+  check(view.getUint16(34, true) === 32, 'file should store 32-bit samples');
+  check(view.getUint32(40, true) === 32, 'header should store the right audio size');
+
+  const second = openWriter(`${prefix} main`);
+  second.send([1]);
+  await second.stop();
+  check(second.messages[0].name === `${prefix} main 2.wav`, 'should never overwrite an existing recording');
+
+  const full = openWriter(`${prefix} full`, 16);
+  full.send([1, 1]);
+  full.send([1]);
+  await full.stop();
+  check(full.messages.some((m) => m.type === 'failed'), 'should stop before the file outgrows what a WAV can hold');
+  check((await readFile(`${prefix} full.wav`)).size === HEADER_SIZE + 16, 'a full recording should stay intact');
+
+  const crashed = openWriter(`${prefix} crashed`);
+  crashed.send([1, 1, 1]);
+  await sleep(100);
+  crashed.worker.terminate();
+  await sleep(100);
+  const crashedView = new DataView(await (await readFile(`${prefix} crashed.wav`)).arrayBuffer());
+  check(crashedView.getUint32(40, true) === 24, 'a file still being written should already be playable');
+
+  const context = new AudioContext({ sampleRate: SAMPLE_RATE });
+  await context.resume();
+  const oscillator = new OscillatorNode(context);
+  oscillator.start();
+  const tone = new Worker(writerUrl);
+  const toneMessages = [];
+  tone.onmessage = ({ data }) => toneMessages.push(data);
+  const tap = await startWriter(context, oscillator, tone, `${prefix} tone`);
+  await sleep(1000);
+  tap.disconnect();
+  await context.close();
+  await sleep(100);
+  tone.postMessage({ type: 'stop' });
+  while (!toneMessages.some((m) => m.type === 'stopped')) await sleep(10);
+  tone.terminate();
+  const toneFile = await readFile(`${prefix} tone.wav`);
+  const toneSeconds = (toneFile.size - HEADER_SIZE) / BYTES_PER_FRAME / SAMPLE_RATE;
+  check(toneSeconds > 0.5, `the audio thread should reach the file, got ${toneSeconds}s`);
+  check(toneMessages.some((m) => m.type === 'loudness'), 'should report loudness while recording');
+  check(new Float32Array((await toneFile.arrayBuffer()).slice(HEADER_SIZE)).every((s, i, all) => i % 2 === 0 || s === all[i - 1]), 'mono sound should reach both channels');
+  const decoded = new Audio(URL.createObjectURL(toneFile));
+  await new Promise((resolve, reject) => {
+    decoded.onloadedmetadata = resolve;
+    decoded.onerror = () => reject(new Error('the browser should be able to play a recording'));
+  });
+  check(Math.abs(decoded.duration - toneSeconds) < 0.05, `playback length should match, got ${decoded.duration}`);
+
+  const peaksFile = new File([new ArrayBuffer(HEADER_SIZE), new Float32Array(200000 * 2).map((_, i) => (i >= 200000 && i % 2 ? 0.5 : 0))], 'peaks.wav');
+  const peaks = await waveformPeaks(peaksFile, 100);
+  check(peaks.length === 100, 'should make one value per bar');
+  check(peaks.slice(0, 50).every((p) => p === 0), 'silent half should be flat');
+  check(peaks.slice(50).every((p) => p === 1), 'loud half should fill the height');
+  check(String(fitWaveform([0.25, 0.5])) === '0.5,1', 'short input keeps every value');
+  check(String(fitWaveform([0, 0, 0.5, 0.25], 2)) === '0,1', "long input keeps each group's loudest");
+
+  const history = new LoudnessHistory();
+  for (let i = 0; i < 5000; i++) history.append(i === 1234 ? 1 : 0.1);
+  check(history.values.length <= 800, "a long recording's history should stay small");
+  check(Math.max(...history.values) === 1, 'merging should keep the loudest moment');
+
+  for await (const name of folder.keys()) {
+    if (name.startsWith(prefix)) await folder.removeEntry(name);
+  }
+}
+
+if (new URLSearchParams(location.search).has('selfcheck')) {
+  // web/check.sh reads the result from the address requested here.
+  runSelfCheck()
+    .then(() => fetch('/selfcheck-passed'))
+    .catch((error) => fetch(`/selfcheck-failed/${encodeURIComponent(error.message)}`));
+} else {
+  runApp();
+}
+</script>
+</body>
+</html>

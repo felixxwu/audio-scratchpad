@@ -1,0 +1,10 @@
+{
+  "hosting": {
+    "site": "audio-scratchpad",
+    "public": "web",
+    "ignore": [
+      "check.sh",
+      "**/.*"
+    ]
+  }
+}

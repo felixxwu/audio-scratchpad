@@ -25,6 +25,12 @@ jobs:
           ditto -c -k --keepParent "build/Audio Scratchpad.app" "Audio-Scratchpad-$TAG.zip"
           gh release upload "$TAG" "Audio-Scratchpad-$TAG.zip" --clobber
 
+  check-web:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: web/check.sh
+
   build-windows:
     runs-on: windows-latest
     steps:

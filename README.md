@@ -48,6 +48,14 @@
 
 Run the `.exe`. There's nothing to install. The app isn't signed, so Windows may warn you the first time. Choose **More info → Run anyway**.
 
+### Web
+
+There's also a [browser version](https://audio-scratchpad.web.app), with nothing to install. It works differently from the apps:
+
+- **Browsers:** it needs desktop Chrome or Edge, because Firefox and Safari can't share sound.
+- **Sources:** you choose from the browser's sharing popup each time. Sharing a tab records only that tab. Sharing a window or your whole screen depends on what your browser and system allow.
+- **Saving:** recordings stay in browser storage, and clearing your browsing data deletes them. Click the download icon to keep a copy, or drag it into another app.
+
 ## Usage
 
 1. Open the app you want to record and choose it under **Source**.
@@ -88,9 +96,13 @@ windows\build.cmd
 
 The script runs the self-checks and builds the app to `build`.
 
+### Web
+
+There's nothing to build. Serve the `web` folder from `localhost` or HTTPS, because browsers only allow capture and storage on secure addresses. `web/check.sh` runs the self-checks in Chrome.
+
 ## Contributing
 
-Bug reports and pull requests are welcome. Every push to `main` and every pull request builds both apps and runs their self-checks, so run the build script for your platform before opening a pull request.
+Bug reports and pull requests are welcome. Every push to `main` and every pull request builds both apps and runs the self-checks for all three versions, so run the build script for your platform before opening a pull request.
 
 Publishing a GitHub release does the same and attaches the apps to that release.
 

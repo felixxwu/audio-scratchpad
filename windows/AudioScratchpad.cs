@@ -13,7 +13,6 @@ using System.Windows.Automation;
 using System.Windows.Automation.Peers;
 using System.Windows.Controls;
 using System.Windows.Input;
-using System.Runtime.InteropServices;
 using System.Windows.Interop;
 using System.Windows.Markup;
 using System.Windows.Media;
@@ -106,7 +105,7 @@ sealed class Row
     public double Duration;
 }
 
-sealed class MainWindow : Window
+sealed partial class MainWindow : Window
 {
     readonly string folder = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyMusic), "Audio Scratchpad");
 
@@ -123,9 +122,10 @@ sealed class MainWindow : Window
     readonly Dictionary<string, Row> rows = new Dictionary<string, Row>();
     readonly Dictionary<string, float[]> waveforms = new Dictionary<string, float[]>();
     string listedFiles;
+    Dictionary<int, AudioSource> knownSources = new Dictionary<int, AudioSource>();
 
     // The waveform of the recording in progress.
-    readonly List<float> liveValues = new List<float>();
+    LoudnessHistory liveLoudness = new LoudnessHistory();
     Button maximizeButton;
     Grid liveRow;
     Border liveSeparator;
@@ -141,6 +141,8 @@ sealed class MainWindow : Window
 
     public MainWindow()
     {
+        // A folder Windows won't let us use shouldn't close the app without a word.
+        Application.Current.DispatcherUnhandledException += (s, e) => { ShowMessage(e.Exception.Message); e.Handled = true; };
         Title = "Audio Scratchpad";
         Width = 480;
         Height = 370;
@@ -225,107 +227,6 @@ sealed class MainWindow : Window
         UpdateControls();
     }
 
-    UIElement BuildTitleBar()
-    {
-        var title = new TextBlock
-        {
-            Text = Title, Foreground = Theme.TitleText, FontSize = 12,
-            VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(12, 0, 0, 0),
-        };
-        maximizeButton = CaptionButton("\uE922", "Maximize", "Caption", ToggleMaximized);
-        var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right };
-        buttons.Children.Add(CaptionButton("\uE921", "Minimize", "Caption", () => WindowState = WindowState.Minimized));
-        buttons.Children.Add(maximizeButton);
-        buttons.Children.Add(CaptionButton("\uE8BB", "Close", "CloseCaption", Close));
-
-        var bar = new Grid { Height = 32, Background = Theme.TitleBar };
-        bar.Children.Add(title);
-        bar.Children.Add(buttons);
-
-        // Windows dims the title bar of a window that isn't active.
-        Activated += (s, e) => { title.Opacity = 1; buttons.Opacity = 1; };
-        Deactivated += (s, e) => { title.Opacity = 0.55; buttons.Opacity = 0.55; };
-        return bar;
-    }
-
-    Button CaptionButton(string glyph, string label, string style, Action action)
-    {
-        var button = new Button { Style = (Style)FindResource(style), Content = glyph, ToolTip = label };
-        WindowChrome.SetIsHitTestVisibleInChrome(button, true);
-        AutomationProperties.SetName(button, label);
-        button.Click += (s, e) => action();
-        return button;
-    }
-
-    void ToggleMaximized()
-    {
-        WindowState = WindowState == WindowState.Maximized ? WindowState.Normal : WindowState.Maximized;
-    }
-
-    void UpdateMaximizeButton()
-    {
-        bool maximized = WindowState == WindowState.Maximized;
-        string label = maximized ? "Restore" : "Maximize";
-        maximizeButton.Content = maximized ? "\uE923" : "\uE922";
-        maximizeButton.ToolTip = label;
-        AutomationProperties.SetName(maximizeButton, label);
-    }
-
-    // Windows only offers Snap Layouts on what it believes is a real maximize button. Claiming that area
-    // means the mouse goes to Windows instead of the button, so hover and click are handled here.
-    IntPtr SnapLayoutsHook(IntPtr window, int message, IntPtr wParam, IntPtr lParam, ref bool handled)
-    {
-        const int hitTest = 0x84, mouseMove = 0xA0, buttonDown = 0xA1, buttonUp = 0xA2, mouseLeave = 0x2A2, overMaximize = 9;
-        bool onMaximize = wParam.ToInt64() == overMaximize;
-        switch (message)
-        {
-            case hitTest:
-                if (!OverMaximizeButton(lParam)) break;
-                handled = true;
-                return new IntPtr(overMaximize);
-            case mouseMove:
-                if (onMaximize) maximizeButton.Background = Theme.Line;
-                else maximizeButton.ClearValue(BackgroundProperty);
-                break;
-            case mouseLeave:
-                maximizeButton.ClearValue(BackgroundProperty);
-                break;
-            case buttonDown:
-                if (!onMaximize) break;
-                maximizeButton.Background = Theme.CaptionPressed;
-                handled = true;
-                break;
-            case buttonUp:
-                if (!onMaximize) break;
-                maximizeButton.ClearValue(BackgroundProperty);
-                ToggleMaximized();
-                handled = true;
-                break;
-        }
-        return IntPtr.Zero;
-    }
-
-    bool OverMaximizeButton(IntPtr screenPoint)
-    {
-        if (!maximizeButton.IsLoaded) return false;
-        long value = screenPoint.ToInt64();
-        var point = maximizeButton.PointFromScreen(new Point((short)(value & 0xFFFF), (short)((value >> 16) & 0xFFFF)));
-        return new Rect(0, 0, maximizeButton.ActualWidth, maximizeButton.ActualHeight).Contains(point);
-    }
-
-    [DllImport("dwmapi.dll")]
-    static extern int DwmSetWindowAttribute(IntPtr window, int attribute, ref int value, int size);
-
-    // Windows 11 draws the rounded corners and thin outline; older versions ignore the request and stay square.
-    void RoundWindow()
-    {
-        var window = new WindowInteropHelper(this).Handle;
-        int round = 2, outline = 0x00555555;
-        const int cornerPreference = 33, borderColor = 34;
-        DwmSetWindowAttribute(window, cornerPreference, ref round, sizeof(int));
-        DwmSetWindowAttribute(window, borderColor, ref outline, sizeof(int));
-    }
-
     static Shape Glyph(string data, bool filled)
     {
         return new Shape
@@ -339,13 +240,18 @@ sealed class MainWindow : Window
     void RefreshSources()
     {
         var selected = SelectedSource;
-        var sources = Process.GetProcesses()
-            .Where(p => p.Id != Process.GetCurrentProcess().Id && p.MainWindowHandle != IntPtr.Zero
+        int ownId;
+        using (var own = Process.GetCurrentProcess()) ownId = own.Id;
+        var processes = Process.GetProcesses();
+        var sources = processes
+            .Where(p => p.Id != ownId && p.MainWindowHandle != IntPtr.Zero
                         // The first hosts the windows of Store apps but plays none of their sound; the second is the touch keyboard.
                         && p.ProcessName != "ApplicationFrameHost" && p.ProcessName != "TextInputHost")
-            .Select(ToSource)
+            .Select(p => { AudioSource known; return knownSources.TryGetValue(p.Id, out known) ? known : ToSource(p); })
             .OrderBy(s => s.Name, StringComparer.CurrentCultureIgnoreCase)
             .ToList();
+        foreach (var process in processes) process.Dispose();
+        knownSources = sources.ToDictionary(s => s.ProcessId);
 
         var items = new List<object> { new ComboBoxItem { Content = "Choose an app…" } };
         foreach (var source in sources)
@@ -565,16 +471,18 @@ sealed class MainWindow : Window
         started.OnLoudness = loudness => Dispatcher.BeginInvoke(new Action(() =>
         {
             if (recorder != started) return;
-            liveValues.Add(loudness);
-            liveWave.Peaks = Waveform.Fit(liveValues.ToArray());
+            liveLoudness.Append(loudness);
+            liveWave.Peaks = Waveform.Fit(liveLoudness.Values);
         }));
         started.OnAudioStarted = () => Dispatcher.BeginInvoke(new Action(() =>
         {
             if (recorder != started) return;
             startedAt = DateTime.UtcNow;
+            topTimer.Text = "0:00";
+            liveTimer.Text = "0:00";
             UpdateControls();
         }));
-        liveValues.Clear();
+        liveLoudness = new LoudnessHistory();
         liveWave.Peaks = new float[0];
         currentPath = path;
         recorder = started;
@@ -677,7 +585,11 @@ sealed class MainWindow : Window
         // A fixed culture keeps file names the same whatever the PC's region settings are.
         string stamp = DateTime.Now.ToString("yyyy-MM-dd HH.mm.ss", CultureInfo.InvariantCulture);
         string safeName = new string(appName.Select(c => Path.GetInvalidFileNameChars().Contains(c) ? '-' : c).ToArray());
-        return Path.Combine(folder, safeName + " " + stamp + ".wav");
+        string name = safeName + " " + stamp;
+        string path = Path.Combine(folder, name + ".wav");
+        for (int copy = 2; File.Exists(path); copy++)
+            path = Path.Combine(folder, name + " " + copy + ".wav");
+        return path;
     }
 
     void ShowMessage(string message)
@@ -711,7 +623,6 @@ sealed class MainWindow : Window
         liveSeparator.Visibility = rows.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
         liveRow.Visibility = recording ? Visibility.Visible : Visibility.Collapsed;
         emptyText.Visibility = rows.Count == 0 && !recording ? Visibility.Visible : Visibility.Collapsed;
-        if (recording) { topTimer.Text = "0:00"; liveTimer.Text = "0:00"; }
         liveWave.ToolTip = currentPath == null ? null : Path.GetFileNameWithoutExtension(currentPath);
         timer.IsEnabled = recording || playingPath != null;
     }

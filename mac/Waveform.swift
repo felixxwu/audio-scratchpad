@@ -24,6 +24,27 @@ func waveformPeaks(of url: URL, bars: Int = 400) throws -> [Float] {
     return fitWaveform(peaks, bars: bars)
 }
 
+// Holds a recording's loudness as it grows, merging older values so redrawing stays quick however long it runs.
+struct LoudnessHistory {
+    private(set) var values: [Float] = []
+    private var reportsPerValue = 1
+    private var pendingReports = 0
+
+    mutating func append(_ value: Float, bars: Int = 400) {
+        if pendingReports == 0 {
+            values.append(value)
+        } else {
+            values[values.count - 1] = max(values[values.count - 1], value)
+        }
+        pendingReports += 1
+        guard pendingReports == reportsPerValue else { return }
+        pendingReports = 0
+        guard values.count == bars * 2 else { return }
+        values = stride(from: 0, to: values.count, by: 2).map { max(values[$0], values[$0 + 1]) }
+        reportsPerValue *= 2
+    }
+}
+
 // Squeezes loudness values into at most `bars`, scaled to the loudest so quiet audio is still readable.
 func fitWaveform(_ values: [Float], bars: Int = 400) -> [Float] {
     var fitted = values

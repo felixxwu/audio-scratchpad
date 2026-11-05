@@ -1,8 +1,32 @@
 // Reads recordings back, and reduces them to a short list of loudness values, one for each bar of the drawn waveform.
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text;
+
+// Holds a recording's loudness as it grows, merging older values so redrawing stays quick however long it runs.
+sealed class LoudnessHistory
+{
+    readonly List<float> values = new List<float>();
+    int reportsPerValue = 1;
+    int pendingReports;
+
+    public float[] Values { get { return values.ToArray(); } }
+
+    public void Append(float value, int bars = 400)
+    {
+        if (pendingReports == 0) values.Add(value);
+        else values[values.Count - 1] = Math.Max(values[values.Count - 1], value);
+        pendingReports++;
+        if (pendingReports < reportsPerValue) return;
+        pendingReports = 0;
+        if (values.Count < bars * 2) return;
+        for (int i = 0; i < values.Count / 2; i++) values[i] = Math.Max(values[i * 2], values[i * 2 + 1]);
+        values.RemoveRange(values.Count / 2, values.Count / 2);
+        reportsPerValue *= 2;
+    }
+}
 
 static class Waveform
 {

@@ -42,6 +42,8 @@ You'll need Windows 10 version 2004 or later.
 2. Click **Record**. The button shows "waiting for audio..." until the app makes a sound.
 3. Click **Stop** when you're done, and the recording appears in the list.
 
+Only apps with a Dock icon or a window are listed, so apps that run only from the menu bar or system tray won't appear.
+
 ## Build from source
 
 ### Mac
@@ -49,7 +51,7 @@ You'll need Windows 10 version 2004 or later.
 You'll need the Xcode command line tools, which you can install with `xcode-select --install`.
 
 ```sh
-./build.sh
+mac/build.sh
 open ~/Applications/"Audio Scratchpad.app"
 ```
 
@@ -66,4 +68,4 @@ windows\build.cmd
 
 The script runs the self-checks and builds the app to `build`.
 
-Publishing a GitHub release builds both apps automatically and attaches them to that release.
+Every push to `main` and every pull request builds both apps and runs their self-checks. Publishing a GitHub release does the same and attaches the apps to that release.

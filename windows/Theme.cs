@@ -3,15 +3,20 @@ using System.Windows.Media;
 
 static class Theme
 {
-    public static readonly SolidColorBrush Accent = Brush("#CCE2FC");
+    const string AccentColor = "#CCE2FC";
+    const string LabelColor = "#DEDEDE";
+    const string LineColor = "#3D3C3B";
+    const string CaptionPressedColor = "#4A4948";
+
+    public static readonly SolidColorBrush Accent = Brush(AccentColor);
     public static readonly SolidColorBrush Background = Brush("#282726");
     public static readonly SolidColorBrush TitleBar = Brush("#302E2E");
-    public static readonly SolidColorBrush Line = Brush("#3D3C3B");
+    public static readonly SolidColorBrush Line = Brush(LineColor);
     public static readonly SolidColorBrush TitleText = Brush("#ADABAB");
-    public static readonly SolidColorBrush Label = Brush("#DEDEDE");
+    public static readonly SolidColorBrush Label = Brush(LabelColor);
     public static readonly SolidColorBrush Secondary = Brush("#9E9E9D");
     public static readonly SolidColorBrush Recording = Brush("#FF453A");
-    public static readonly SolidColorBrush CaptionPressed = Brush("#4A4948");
+    public static readonly SolidColorBrush CaptionPressed = Brush(CaptionPressedColor);
 
     static SolidColorBrush Brush(string color)
     {
@@ -45,7 +50,7 @@ static class Theme
     <Setter Property='Control.Template'>
       <Setter.Value>
         <ControlTemplate>
-          <Rectangle Margin='-1' Stroke='#CCE2FC' StrokeThickness='1' RadiusX='4' RadiusY='4' />
+          <Rectangle Margin='-1' Stroke='" + AccentColor + @"' StrokeThickness='1' RadiusX='4' RadiusY='4' />
         </ControlTemplate>
       </Setter.Value>
     </Setter>
@@ -70,7 +75,7 @@ static class Theme
 
   <Style x:Key='Pill' TargetType='Button'>
     <Setter Property='FocusVisualStyle' Value='{StaticResource Focus}' />
-    <Setter Property='Foreground' Value='#CCE2FC' />
+    <Setter Property='Foreground' Value='" + AccentColor + @"' />
     <Setter Property='Template'>
       <Setter.Value>
         <ControlTemplate TargetType='Button'>
@@ -92,7 +97,7 @@ static class Theme
     <Setter Property='Width' Value='46' />
     <Setter Property='Height' Value='32' />
     <Setter Property='Background' Value='Transparent' />
-    <Setter Property='Foreground' Value='#DEDEDE' />
+    <Setter Property='Foreground' Value='" + LabelColor + @"' />
     <Setter Property='FontFamily' Value='Segoe MDL2 Assets' />
     <Setter Property='FontSize' Value='10' />
     <Setter Property='Template'>
@@ -105,8 +110,8 @@ static class Theme
       </Setter.Value>
     </Setter>
     <Style.Triggers>
-      <Trigger Property='IsMouseOver' Value='True'><Setter Property='Background' Value='#3D3C3B' /></Trigger>
-      <Trigger Property='IsPressed' Value='True'><Setter Property='Background' Value='#4A4948' /></Trigger>
+      <Trigger Property='IsMouseOver' Value='True'><Setter Property='Background' Value='" + LineColor + @"' /></Trigger>
+      <Trigger Property='IsPressed' Value='True'><Setter Property='Background' Value='" + CaptionPressedColor + @"' /></Trigger>
     </Style.Triggers>
   </Style>
 
@@ -125,7 +130,7 @@ static class Theme
 
   <Style TargetType='ComboBox'>
     <Setter Property='FocusVisualStyle' Value='{StaticResource Focus}' />
-    <Setter Property='Foreground' Value='#CCE2FC' />
+    <Setter Property='Foreground' Value='" + AccentColor + @"' />
     <Setter Property='Template'>
       <Setter.Value>
         <ControlTemplate TargetType='ComboBox'>
@@ -135,7 +140,7 @@ static class Theme
               <ToggleButton.Template>
                 <ControlTemplate TargetType='ToggleButton'>
                   <Border x:Name='Box' Background='#303031' CornerRadius='5'>
-                    <Path HorizontalAlignment='Right' VerticalAlignment='Center' Margin='0,0,10,0' Stroke='#CCE2FC' StrokeThickness='1.2'
+                    <Path HorizontalAlignment='Right' VerticalAlignment='Center' Margin='0,0,10,0' Stroke='" + AccentColor + @"' StrokeThickness='1.2'
                           StrokeStartLineCap='Round' StrokeEndLineCap='Round' StrokeLineJoin='Round'
                           Data='M0,3.8 L3.6,0 L7.2,3.8 M0,6.7 L3.6,10.5 L7.2,6.7' />
                   </Border>
@@ -149,7 +154,7 @@ static class Theme
                               Content='{TemplateBinding SelectionBoxItem}' ContentTemplate='{TemplateBinding SelectionBoxItemTemplate}' />
             <Popup x:Name='PART_Popup' AllowsTransparency='True' Placement='Bottom' VerticalOffset='3' Focusable='False'
                    IsOpen='{Binding IsDropDownOpen, RelativeSource={RelativeSource TemplatedParent}}'>
-              <Border Background='#302F2F' BorderBrush='#3D3C3B' BorderThickness='1' CornerRadius='6' Padding='0,4'
+              <Border Background='#302F2F' BorderBrush='" + LineColor + @"' BorderThickness='1' CornerRadius='6' Padding='0,4'
                       MinWidth='{Binding ActualWidth, ElementName=Root}' MaxHeight='{TemplateBinding MaxDropDownHeight}'>
                 <ScrollViewer VerticalScrollBarVisibility='Auto'><ItemsPresenter /></ScrollViewer>
               </Border>
@@ -164,7 +169,7 @@ static class Theme
   </Style>
 
   <Style TargetType='ComboBoxItem'>
-    <Setter Property='Foreground' Value='#CCE2FC' />
+    <Setter Property='Foreground' Value='" + AccentColor + @"' />
     <Setter Property='FocusVisualStyle' Value='{x:Null}' />
     <Setter Property='Template'>
       <Setter.Value>
@@ -203,8 +208,8 @@ static class Theme
 
   <Style TargetType='ToolTip'>
     <Setter Property='Background' Value='#302F2F' />
-    <Setter Property='Foreground' Value='#DEDEDE' />
-    <Setter Property='BorderBrush' Value='#3D3C3B' />
+    <Setter Property='Foreground' Value='" + LabelColor + @"' />
+    <Setter Property='BorderBrush' Value='" + LineColor + @"' />
   </Style>
 </ResourceDictionary>";
 }

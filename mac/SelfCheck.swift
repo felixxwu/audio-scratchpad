@@ -66,6 +66,15 @@ private func checkRecordingFile() throws {
     precondition(samples[48005] == 0.125, "interleaved audio should be stored the same way")
     _ = try AVAudioPlayer(contentsOf: url)
 
+    let bytes = try Data(contentsOf: url)
+    let dataSize = (2 + 48000 + 2 + 2) * 8
+    func headerValue(at offset: Int) -> Int {
+        Int(bytes.withUnsafeBytes { $0.loadUnaligned(fromByteOffset: offset, as: UInt32.self) })
+    }
+    precondition(bytes.count == 44 + dataSize, "file should be the header plus the samples, got \(bytes.count)")
+    precondition(headerValue(at: 4) == 36 + dataSize, "header should store the right file size")
+    precondition(headerValue(at: 40) == dataSize, "header should store the right audio size")
+
     do {
         let recording = RecordingFile(url: url, maxDataSize: 16)
         try? FileManager.default.removeItem(at: url)
@@ -80,6 +89,17 @@ private func checkRecordingFile() throws {
         var refused = false
         do { try second.append(sampleBuffer(at: 0, values: [1])) } catch { refused = true }
         precondition(refused, "should never overwrite an existing recording")
+    }
+
+    do {
+        try FileManager.default.removeItem(at: url)
+        let recording = RecordingFile(url: url, maxDataSize: 24)
+        try recording.append(sampleBuffer(at: 0, values: [1, 1]))
+        var stopped = false
+        do { try recording.append(sampleBuffer(at: 1, values: [1])) } catch { stopped = true }
+        precondition(stopped, "a pause should count towards the largest size")
+        let size = try Data(contentsOf: url).count
+        precondition(size == 44 + 16, "a refused pause should leave the file unchanged, got \(size)")
     }
 }
 

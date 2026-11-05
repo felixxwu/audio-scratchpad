@@ -15,6 +15,7 @@ final class Recorder: NSObject, SCStreamOutput, SCStreamDelegate {
     private let queue = DispatchQueue(label: "recorder.audio")
     private var stream: SCStream?
     private var output: RecordingFile?
+    private var failed = false
 
     func start(filter: SCContentFilter, url: URL) async throws {
         output = RecordingFile(url: url)
@@ -48,12 +49,12 @@ final class Recorder: NSObject, SCStreamOutput, SCStreamDelegate {
     }
 
     func stream(_ stream: SCStream, didOutputSampleBuffer buffer: CMSampleBuffer, of type: SCStreamOutputType) {
-        guard type == .audio, buffer.isValid, buffer.numSamples > 0, let output else { return }
+        guard type == .audio, buffer.isValid, buffer.numSamples > 0, !failed, let output else { return }
         let wasStarted = output.hasStarted
         do {
             try output.append(buffer)
         } catch {
-            self.output = nil
+            failed = true
             onUnexpectedStop?(error)
             return
         }

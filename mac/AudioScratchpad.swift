@@ -126,7 +126,7 @@ final class AppModel: NSObject, ObservableObject, AVAudioPlayerDelegate {
             let recorder = Recorder()
             recorder.onUnexpectedStop = { [weak self, weak recorder] error in
                 Task { @MainActor in
-                    guard let self, self.recorder === recorder else { return }
+                    guard let self, let recorder, self.recorder === recorder else { return }
                     await self.stop(reason: error.localizedDescription)
                 }
             }
@@ -137,7 +137,7 @@ final class AppModel: NSObject, ObservableObject, AVAudioPlayerDelegate {
             }
             recorder.onAudioStarted = { [weak self, weak recorder] in
                 Task { @MainActor in
-                    guard let self, self.recorder === recorder else { return }
+                    guard let self, let recorder, self.recorder === recorder else { return }
                     self.isWaitingForAudio = false
                     self.startedAt = Date()
                 }

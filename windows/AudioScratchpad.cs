@@ -32,6 +32,7 @@ using Size = System.Windows.Size;
 sealed class AudioSource
 {
     public int ProcessId;
+    public string ProcessName;
     public string Name;
     public ImageSource Icon;
 }
@@ -247,7 +248,7 @@ sealed partial class MainWindow : Window
             .Where(p => p.Id != ownId && p.MainWindowHandle != IntPtr.Zero
                         // The first hosts the windows of Store apps but plays none of their sound; the second is the touch keyboard.
                         && p.ProcessName != "ApplicationFrameHost" && p.ProcessName != "TextInputHost")
-            .Select(p => { AudioSource known; return knownSources.TryGetValue(p.Id, out known) ? known : ToSource(p); })
+            .Select(p => { AudioSource known; return knownSources.TryGetValue(p.Id, out known) && known.ProcessName == p.ProcessName ? known : ToSource(p); })
             .OrderBy(s => s.Name, StringComparer.CurrentCultureIgnoreCase)
             .ToList();
         foreach (var process in processes) process.Dispose();
@@ -263,12 +264,12 @@ sealed partial class MainWindow : Window
         }
         sourcePicker.ItemsSource = items;
         sourcePicker.SelectedItem = selected == null ? items[0]
-            : items.OfType<ComboBoxItem>().FirstOrDefault(i => i.Tag != null && ((AudioSource)i.Tag).ProcessId == selected.ProcessId) ?? items[0];
+            : items.OfType<ComboBoxItem>().FirstOrDefault(i => i.Tag == selected) ?? items[0];
     }
 
     static AudioSource ToSource(Process process)
     {
-        var source = new AudioSource { ProcessId = process.Id, Name = process.ProcessName };
+        var source = new AudioSource { ProcessId = process.Id, ProcessName = process.ProcessName, Name = process.ProcessName };
         // Apps running as administrator don't let us read these, so they keep the plain process name.
         try
         {
@@ -450,14 +451,25 @@ sealed partial class MainWindow : Window
         return (int)time.TotalMinutes + ":" + time.Seconds.ToString("00");
     }
 
+    // Windows reuses process IDs, so the name is checked too.
+    static bool IsRunning(AudioSource source)
+    {
+        try
+        {
+            using (var process = Process.GetProcessById(source.ProcessId))
+                return process.ProcessName == source.ProcessName;
+        }
+        catch (ArgumentException) { return false; }
+        catch (InvalidOperationException) { return false; }
+    }
+
     void StartRecording()
     {
         var source = SelectedSource;
         if (source == null || IsCapturing) return;
         ShowMessage(null);
         StopPlayback();
-        try { Process.GetProcessById(source.ProcessId).Dispose(); }
-        catch (ArgumentException)
+        if (!IsRunning(source))
         {
             ShowMessage(source.Name + " isn't available to record. Is it still open?");
             return;

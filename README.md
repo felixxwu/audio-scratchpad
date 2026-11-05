@@ -1,12 +1,27 @@
-<h1 align="center">Audio Scratchpad</h1>
+<div align="center">
 
-<p align="center">
-  Record the sound of one app on Mac or Windows, then play it back or drag it straight into another app.
-</p>
+# Audio Scratchpad
 
-<p align="center">
-  <img src="image.png" alt="Audio Scratchpad window showing Google Chrome as the source and three recordings with their waveforms" width="536">
-</p>
+### Record the sound of one app, then play it back or drag it straight into another app.
+
+**For Mac and Windows. No silence to trim, no quality lost, nothing else from your computer in the recording.**
+
+[![Latest release](https://img.shields.io/github/v/release/felixxwu/audio-scratchpad?style=flat-square)](https://github.com/felixxwu/audio-scratchpad/releases/latest)
+[![Build status](https://img.shields.io/github/actions/workflow/status/felixxwu/audio-scratchpad/release.yml?branch=main&style=flat-square&label=build)](https://github.com/felixxwu/audio-scratchpad/actions/workflows/release.yml)
+[![Platforms](https://img.shields.io/badge/platforms-macOS%20%7C%20Windows-blue?style=flat-square)](#install)
+[![MIT license](https://img.shields.io/badge/license-MIT-f4c430?style=flat-square)](LICENSE)
+
+**[Download the latest release](https://github.com/felixxwu/audio-scratchpad/releases/latest)**
+
+[Features](#features) · [Install](#install) · [Usage](#usage) · [Build from source](#build-from-source) · [Contributing](#contributing) · [Code signing policy](#code-signing-policy) · [License](#license)
+
+<br />
+
+<img src="image.png" alt="Audio Scratchpad window showing Google Chrome as the source and three recordings with their waveforms" width="536" />
+
+</div>
+
+---
 
 ## Features
 
@@ -16,25 +31,22 @@
 - **See every take:** each recording gets a waveform you can click or drag along to jump to any point.
 - **Use it anywhere:** click the copy icon to copy the file, or drag the icon into another app.
 
-Recordings are saved to `~/Music/Audio Scratchpad` on Mac and `Music\Audio Scratchpad` on Windows.
-
 ## Install
+
+| Platform | Requirements                      | Download                                                                               |
+| -------- | --------------------------------- | -------------------------------------------------------------------------------------- |
+| Mac      | Apple Silicon, macOS 14 or later  | [`.zip` from the latest release](https://github.com/felixxwu/audio-scratchpad/releases/latest) |
+| Windows  | Windows 10 version 2004 or later  | [`.exe` from the latest release](https://github.com/felixxwu/audio-scratchpad/releases/latest) |
 
 ### Mac
 
-You'll need an Apple Silicon Mac running macOS 14 or later.
-
-1. Download the zip from the [latest release](https://github.com/felixxwu/audio-scratchpad/releases/latest).
-2. Unzip it and move **Audio Scratchpad** to your Applications folder.
-3. Open it. The app isn't notarized, so macOS will block it the first time. Go to **System Settings → Privacy & Security** and choose **Open Anyway**.
-4. Allow **Screen & System Audio Recording** when asked. macOS uses this permission for app audio, and Audio Scratchpad doesn't save any video.
+1. Unzip the download and move **Audio Scratchpad** to your Applications folder.
+2. Open it. The app isn't notarized, so macOS will block it the first time. Go to **System Settings → Privacy & Security** and choose **Open Anyway**.
+3. Allow **Screen & System Audio Recording** when asked. macOS uses this permission for app audio, and Audio Scratchpad doesn't save any video.
 
 ### Windows
 
-You'll need Windows 10 version 2004 or later.
-
-1. Download the `.exe` from the [latest release](https://github.com/felixxwu/audio-scratchpad/releases/latest).
-2. Run it. There's nothing to install. The app isn't signed, so Windows may warn you the first time. Choose **More info → Run anyway**.
+Run the `.exe`. There's nothing to install. The app isn't signed, so Windows may warn you the first time. Choose **More info → Run anyway**.
 
 ## Usage
 
@@ -42,7 +54,15 @@ You'll need Windows 10 version 2004 or later.
 2. Click **Record**. The button shows "waiting for audio..." until the app makes a sound.
 3. Click **Stop** when you're done, and the recording appears in the list.
 
-Only apps with a Dock icon or a window are listed, so apps that run only from the menu bar or system tray won't appear.
+Recordings are saved here:
+
+| Platform | Folder                      |
+| -------- | --------------------------- |
+| Mac      | `~/Music/Audio Scratchpad`  |
+| Windows  | `Music\Audio Scratchpad`    |
+
+> [!NOTE]
+> Only apps with a Dock icon or a window are listed, so apps that run only from the menu bar or system tray won't appear.
 
 ## Build from source
 
@@ -68,7 +88,11 @@ windows\build.cmd
 
 The script runs the self-checks and builds the app to `build`.
 
-Every push to `main` and every pull request builds both apps and runs their self-checks. Publishing a GitHub release does the same and attaches the apps to that release.
+## Contributing
+
+Bug reports and pull requests are welcome. Every push to `main` and every pull request builds both apps and runs their self-checks, so run the build script for your platform before opening a pull request.
+
+Publishing a GitHub release does the same and attaches the apps to that release.
 
 ## Code signing policy
 

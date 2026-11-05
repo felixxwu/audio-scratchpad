@@ -2,6 +2,7 @@
 using System;
 using System.IO;
 using System.Linq;
+using System.Text;
 
 static class SelfCheck
 {
@@ -84,6 +85,31 @@ static class SelfCheck
         Require(new FileInfo(path).Length == 44 + 2 * 8, "a first packet with no time should not add silence");
     }
 
+    // A compressed WAV from elsewhere, with an extra odd-sized chunk before its format.
+    static void CheckForeignWav(string path)
+    {
+        using (var w = new BinaryWriter(File.Create(path)))
+        {
+            w.Write(Encoding.ASCII.GetBytes("RIFF"));
+            w.Write(0);
+            w.Write(Encoding.ASCII.GetBytes("WAVELIST"));
+            w.Write(3);
+            w.Write(new byte[4]);
+            w.Write(Encoding.ASCII.GetBytes("fmt "));
+            w.Write(16);
+            w.Write((short)17);
+            w.Write((short)1);
+            w.Write(44100);
+            w.Write(22000);
+            w.Write((short)512);
+            w.Write((short)0);
+            w.Write(Encoding.ASCII.GetBytes("data"));
+            w.Write(11000);
+            w.Write(new byte[11000]);
+        }
+        Require(Waveform.Duration(path) == 0.5, "duration should skip unknown chunks and use the file's byte rate");
+    }
+
     static void CheckSizeLimit(string path)
     {
         using (var recording = new RecordingFile(path, 16))
@@ -100,7 +126,7 @@ static class SelfCheck
 
     static void Main()
     {
-        foreach (Action<string> check in new Action<string>[] { CheckRecordingFile, CheckWaveform, CheckUnknownFirstTime, CheckSizeLimit })
+        foreach (Action<string> check in new Action<string>[] { CheckRecordingFile, CheckWaveform, CheckUnknownFirstTime, CheckForeignWav, CheckSizeLimit })
         {
             string path = Path.Combine(Path.GetTempPath(), "recording-check-" + Guid.NewGuid() + ".wav");
             try { check(path); }

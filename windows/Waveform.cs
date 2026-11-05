@@ -32,7 +32,7 @@ static class Waveform
 {
     sealed class Wav
     {
-        public int Channels, SampleRate, Bits, Tag;
+        public int Channels, ByteRate, Bits, Tag;
         public long DataStart, DataBytes;
     }
 
@@ -51,13 +51,14 @@ static class Waveform
             {
                 wav.Tag = r.ReadInt16();
                 wav.Channels = r.ReadInt16();
-                wav.SampleRate = r.ReadInt32();
-                r.ReadBytes(6);
+                r.ReadInt32();
+                wav.ByteRate = r.ReadInt32();
+                r.ReadInt16();
                 wav.Bits = r.ReadInt16();
             }
             else if (id == "data")
             {
-                if (wav.Channels <= 0 || wav.SampleRate <= 0 || wav.Bits <= 0) throw new InvalidDataException("WAV has no format");
+                if (wav.Channels <= 0 || wav.ByteRate <= 0) throw new InvalidDataException("WAV has no format");
                 wav.DataStart = s.Position;
                 wav.DataBytes = Math.Min(size, s.Length - s.Position);
                 return wav;
@@ -77,7 +78,7 @@ static class Waveform
         using (var r = Open(path))
         {
             var wav = ReadHeader(r);
-            return (double)wav.DataBytes / (wav.Channels * wav.Bits / 8) / wav.SampleRate;
+            return (double)wav.DataBytes / wav.ByteRate;
         }
     }
 

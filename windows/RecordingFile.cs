@@ -49,7 +49,12 @@ sealed class RecordingFile : IDisposable
         if (file.Length - HeaderSize + (silentFrames + frames) * BytesPerFrame > maxDataSize)
             throw new IOException("The recording reached the largest size a WAV file can hold.");
 
-        WriteSilence(silentFrames);
+        if (silentFrames > 0)
+        {
+            // Growing a file fills the new space with zeros, so the pause needs no loop of writes.
+            file.SetLength(file.Length + silentFrames * BytesPerFrame);
+            file.Seek(0, SeekOrigin.End);
+        }
         var bytes = new byte[frames * BytesPerFrame];
         Buffer.BlockCopy(samples, startFrame * BytesPerFrame, bytes, 0, bytes.Length);
         file.Write(bytes, 0, bytes.Length);
@@ -57,14 +62,6 @@ sealed class RecordingFile : IDisposable
 
         // Kept current after every write, so a crash still leaves a playable file.
         WriteHeader(file.Length - HeaderSize);
-    }
-
-    void WriteSilence(long frames)
-    {
-        if (frames == 0) return;
-        var silence = new byte[SampleRate * BytesPerFrame];
-        for (long remaining = frames * BytesPerFrame; remaining > 0; remaining -= silence.Length)
-            file.Write(silence, 0, (int)Math.Min(remaining, silence.Length));
     }
 
     void WriteHeader(long dataBytes)

@@ -26,10 +26,11 @@
 ## Features
 
 - **Record one app:** capture a single app's audio without picking up the rest of your computer.
+- **Or record your voice:** choose **Microphone** as the source to record your default microphone.
 - **Start on the first sound:** recording begins at the first non-zero sample, so there's no silence to trim from the start.
 - **Keep the full quality:** recordings are uncompressed 32-bit float WAV files at 48 kHz in stereo.
 - **See every take:** each recording gets a waveform you can click or drag along to jump to any point.
-- **Know what you captured:** each recording is labelled lossless, lossy or with the lower sample rate it came from, and hovering the label explains why. That shows whether the app you recorded was playing a full-quality file. [How it works](quality/README.md)
+- **Know what you captured:** each recording is labelled lossless, with its estimated bitrate if it came from a lossy source, or with the lower sample rate it came from, and hovering the label says what it means. That shows whether the app you recorded was playing a full-quality file. [How it works](quality/README.md)
 - **Use it anywhere:** click the copy icon to copy the file, or drag the icon into another app.
 
 ## Install
@@ -43,7 +44,7 @@
 
 1. Unzip the download and move **Audio Scratchpad** to your Applications folder.
 2. Open it. The app isn't notarized, so macOS will block it the first time. Go to **System Settings → Privacy & Security** and choose **Open Anyway**.
-3. Allow **Screen & System Audio Recording** when asked. macOS uses this permission for app audio, and Audio Scratchpad doesn't save any video.
+3. Allow **Screen & System Audio Recording** when asked. macOS uses this permission for app audio, and Audio Scratchpad doesn't save any video. Recording the microphone asks for **Microphone** access instead.
 
 ### Windows
 
@@ -53,14 +54,14 @@ Run the `.exe`. There's nothing to install. The app isn't signed, so Windows may
 
 There's also a [browser version](https://audio-scratchpad.web.app), with nothing to install. It works differently from the apps:
 
-- **Browsers:** it needs desktop Chrome or Edge, because Firefox and Safari can't share sound.
-- **Sources:** you choose from the browser's sharing popup each time. Sharing a tab records only that tab. Sharing a window or your whole screen depends on what your browser and system allow.
+- **Browsers:** recording other apps needs desktop Chrome or Edge, because Firefox and Safari can't share sound.
+- **Sources:** choose **Microphone** or **Other apps**. For other apps, you choose from the browser's sharing popup each time. Sharing a tab records only that tab. Sharing a window or your whole screen depends on what your browser and system allow.
 - **Saving:** recordings stay in browser storage, and clearing your browsing data deletes them. Click the download icon to keep a copy, or drag it into another app.
 
 ## Usage
 
-1. Open the app you want to record and choose it under **Source**.
-2. Click **Record**. The button shows "waiting for audio..." until the app makes a sound.
+1. Open the app you want to record and choose it under **Source**, or choose **Microphone**.
+2. Click **Record**. The button shows "waiting for audio..." until the source makes a sound.
 3. Click **Stop** when you're done, and the recording appears in the list.
 
 Recordings are saved here:

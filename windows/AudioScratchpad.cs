@@ -1,4 +1,4 @@
-// A small Windows app that records the sound of one chosen app to .wav files and lists them.
+// A small Windows app that records the sound of one chosen app, or the microphone, to .wav files and lists them.
 using System;
 using System.Collections.Generic;
 using System.Collections.Specialized;
@@ -31,6 +31,12 @@ using Size = System.Windows.Size;
 
 sealed class AudioSource
 {
+    public static readonly AudioSource Microphone = new AudioSource
+    {
+        Name = "Microphone",
+        Icon = new DrawingImage(new GeometryDrawing(null, new System.Windows.Media.Pen(Theme.Accent, 1.1), Geometry.Parse(Theme.Microphone))),
+    };
+
     public int ProcessId;
     public string ProcessName;
     public string Name;
@@ -260,8 +266,8 @@ sealed partial class MainWindow : Window
         foreach (var process in processes) process.Dispose();
         knownSources = sources.ToDictionary(s => s.ProcessId);
 
-        var items = new List<object> { new ComboBoxItem { Content = "Choose an app\u2026" } };
-        foreach (var source in sources)
+        var items = new List<object> { new ComboBoxItem { Content = "Choose a source\u2026" } };
+        foreach (var source in new[] { AudioSource.Microphone }.Concat(sources))
         {
             var row = new StackPanel { Orientation = Orientation.Horizontal };
             row.Children.Add(new Image { Source = source.Icon, Width = 14, Height = 14, Margin = new Thickness(0, 0, 3.5, 0) });
@@ -353,11 +359,11 @@ sealed partial class MainWindow : Window
                 }
                 catch (DllNotFoundException)
                 {
-                    return new QualityReport { Label = "", Summary = "This version of Windows can't run the quality check." };
+                    return new QualityReport { Label = "", Tooltip = "This version of Windows can't run the quality check." };
                 }
                 catch (Exception error)
                 {
-                    return new QualityReport { Label = "", Summary = error.Message };
+                    return new QualityReport { Label = "", Tooltip = error.Message };
                 }
             }, TaskScheduler.Default);
             qualityQueue = check;
@@ -366,15 +372,15 @@ sealed partial class MainWindow : Window
         }
         row.QualityLoading.Visibility = Visibility.Collapsed;
         row.Quality.Text = report.Label;
-        row.Quality.ToolTip = string.IsNullOrEmpty(report.Summary) ? null : report.Summary;
-        AutomationProperties.SetName(row.Quality, report.Label == "" ? "" : "Quality: " + report.Label + ". " + report.Summary);
+        row.Quality.ToolTip = string.IsNullOrEmpty(report.Tooltip) ? null : report.Tooltip;
+        AutomationProperties.SetName(row.Quality, report.Label == "" ? "" : "Quality: " + report.Label + ". " + report.Tooltip);
     }
 
     // Columns: play, waveform, quality, time, then the copy, folder and trash buttons.
     static Grid NewRowGrid()
     {
         var grid = new Grid { Height = 36 };
-        foreach (double width in new double[] { 25, -1, 58, 40, 24, 24, 24 })
+        foreach (double width in new double[] { 25, -1, 80, 40, 24, 24, 24 })
             grid.ColumnDefinitions.Add(new ColumnDefinition { Width = width < 0 ? new GridLength(1, GridUnitType.Star) : new GridLength(width) });
         return grid;
     }
@@ -400,15 +406,16 @@ sealed partial class MainWindow : Window
         return text;
     }
 
-    // Whether the recording is lossless, lossy or upsampled, with the reasons on hover.
+    // Whether the recording is lossless, lossy or upsampled, with a note on hover.
     static TextBlock QualityText(Grid grid)
     {
         var text = new TextBlock
         {
             Foreground = Theme.Secondary, FontSize = 11.5, VerticalAlignment = VerticalAlignment.Center,
             HorizontalAlignment = HorizontalAlignment.Right, TextTrimming = TextTrimming.CharacterEllipsis,
-            Background = Brushes.Transparent, // so the whole column shows the reasons on hover
+            Background = Brushes.Transparent, // so the whole column shows the note on hover
         };
+        ToolTipService.SetInitialShowDelay(text, 0);
         Grid.SetColumn(text, 2);
         grid.Children.Add(text);
         return text;
@@ -532,7 +539,8 @@ sealed partial class MainWindow : Window
         if (source == null || IsCapturing) return;
         ShowMessage(null);
         StopPlayback();
-        if (!IsRunning(source))
+        bool isMicrophone = source == AudioSource.Microphone;
+        if (!isMicrophone && !IsRunning(source))
         {
             ShowMessage(source.Name + " isn't available to record. Is it still open?");
             return;
@@ -564,7 +572,7 @@ sealed partial class MainWindow : Window
         currentPath = path;
         recorder = started;
         UpdateControls();
-        started.Start(source.ProcessId, path);
+        started.Start(isMicrophone ? (int?)null : source.ProcessId, path);
     }
 
     void StopRecording(string reason)
@@ -576,7 +584,7 @@ sealed partial class MainWindow : Window
         bool saved = stopping.Stop();
         currentPath = null;
         if (reason != null) ShowMessage("Recording stopped: " + reason);
-        else if (!saved) ShowMessage("No sound came from that app, so nothing was saved.");
+        else if (!saved) ShowMessage("No sound came from that source, so nothing was saved.");
         RefreshRecordings();
         UpdateControls();
     }

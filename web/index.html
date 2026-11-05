@@ -1,5 +1,5 @@
 <!doctype html>
-<!-- The browser version of Audio Scratchpad: records whatever the browser's sharing popup offers to .wav files kept in browser storage. -->
+<!-- The browser version of Audio Scratchpad: records the microphone, or whatever the browser's sharing popup offers, to .wav files kept in browser storage. -->
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -16,6 +16,7 @@
     --control: #e7e7e4;
     --accent: #2b6cb0;
     --record: #d12f2f;
+    --chevron: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'><path d='M2 4l4 4 4-4' fill='none' stroke='%231d1d1b' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/></svg>");
   }
   @media (prefers-color-scheme: dark) {
     :root {
@@ -26,6 +27,7 @@
       --control: #3a3835;
       --accent: #c7e3ff;
       --record: #ff6b5e;
+      --chevron: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'><path d='M2 4l4 4 4-4' fill='none' stroke='%23f2f1ef' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/></svg>");
     }
   }
   * { box-sizing: border-box; }
@@ -40,7 +42,21 @@
   h1 { margin: 0 0 16px; font-size: 16px; font-weight: 600; color: var(--muted); }
   button, a.icon { color: var(--accent); }
   .controls { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
-  #source { flex: 1; min-width: 160px; color: var(--muted); }
+  .source { flex: 1; display: flex; align-items: center; gap: 8px; min-width: 160px; color: var(--muted); }
+  #source {
+    flex: 1;
+    min-width: 0;
+    min-height: 40px;
+    padding: 0 36px 0 12px;
+    border: 0;
+    border-radius: 6px;
+    /* Browsers don't let the built-in arrow be moved, so this draws its own. */
+    appearance: none;
+    background: var(--control) var(--chevron) no-repeat right 12px center / 12px;
+    color: var(--text);
+    font: inherit;
+  }
+  #source:disabled { opacity: 0.5; }
   #timer { color: var(--record); font-variant-numeric: tabular-nums; }
   #record {
     display: inline-flex;
@@ -63,7 +79,7 @@
   #list { margin: 0; padding: 0; list-style: none; }
   #list li {
     display: grid;
-    grid-template-columns: 32px minmax(0, 1fr) 64px 44px 32px 32px;
+    grid-template-columns: 32px minmax(0, 1fr) 92px 44px 32px 32px;
     align-items: center;
     gap: 4px;
     padding: 6px 0;
@@ -73,7 +89,25 @@
   #list canvas { display: block; width: 100%; height: 28px; cursor: pointer; touch-action: none; }
   #list li.live canvas { cursor: default; }
   .time { color: var(--muted); font-variant-numeric: tabular-nums; text-align: right; }
-  .quality { overflow: hidden; color: var(--muted); font-size: 12px; text-align: right; text-overflow: ellipsis; white-space: nowrap; }
+  .quality { position: relative; color: var(--muted); font-size: 12px; text-align: right; white-space: nowrap; }
+  /* Drawn here rather than with a title attribute, which browsers only show after a delay. */
+  .quality[data-tooltip]:not([data-tooltip='']):hover::after {
+    content: attr(data-tooltip);
+    position: absolute;
+    right: 0;
+    bottom: calc(100% + 4px);
+    z-index: 1;
+    width: max-content;
+    max-width: 220px;
+    padding: 4px 8px;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    background: var(--control);
+    color: var(--text);
+    text-align: left;
+    white-space: normal;
+    pointer-events: none;
+  }
   /* Shown in place of the quality label until the check finishes. */
   .loading-bar { position: relative; display: block; width: 44px; height: 3px; margin-left: auto; overflow: hidden; border-radius: 2px; background: var(--line); }
   .loading-bar::after { content: ''; position: absolute; inset: 0; width: 40%; border-radius: inherit; background: var(--accent); animation: loading 1.2s ease-in-out infinite; }
@@ -106,7 +140,13 @@
 <body>
 <h1>Audio Scratchpad</h1>
 <div class="controls">
-  <span id="source"></span>
+  <label class="source">
+    Source
+    <select id="source">
+      <option value="apps">Other apps</option>
+      <option value="microphone">Microphone</option>
+    </select>
+  </label>
   <span id="timer"></span>
   <button id="record" type="button"></button>
 </div>
@@ -270,10 +310,10 @@
     queue = queue.then(async () => {
       try {
         if (!self.AudioQuality) importScripts(data.scriptUrl);
-        const { verdict, label, summary } = await check(data.file);
-        postMessage({ id: data.id, verdict, label, summary });
+        const { verdict, label, summary, tooltip } = await check(data.file);
+        postMessage({ id: data.id, verdict, label, summary, tooltip });
       } catch (error) {
-        postMessage({ id: data.id, verdict: 'unknown', label: '', summary: `The quality check failed: ${error.message}` });
+        postMessage({ id: data.id, verdict: 'unknown', label: '', summary: `The quality check failed: ${error.message}`, tooltip: `The quality check failed: ${error.message}` });
       }
     });
   };
@@ -284,6 +324,16 @@ const SAMPLE_RATE = 48000;
 const HEADER_SIZE = 44;
 const BYTES_PER_FRAME = 8;
 const BARS = 400;
+// Asks browsers for the sound as it is, without the clean-up they apply to calls by default.
+const UNPROCESSED_AUDIO = {
+  autoGainControl: false,
+  echoCancellation: false,
+  noiseSuppression: false,
+  sampleRate: SAMPLE_RATE,
+  channelCount: 2,
+};
+
+const openMicrophone = () => navigator.mediaDevices.getUserMedia({ audio: UNPROCESSED_AUDIO });
 
 const scriptUrl = (id) =>
   URL.createObjectURL(new Blob([document.getElementById(id).textContent], { type: 'text/javascript' }));
@@ -417,7 +467,13 @@ function runApp() {
   const element = (id) => document.getElementById(id);
   const recordButton = element('record');
   const list = element('list');
-  const supported = navigator.mediaDevices?.getDisplayMedia && navigator.storage?.getDirectory;
+  const sourcePicker = element('source');
+  const canShareApps = Boolean(navigator.mediaDevices?.getDisplayMedia);
+  const canUseMicrophone = Boolean(navigator.mediaDevices?.getUserMedia);
+  const supported = (canShareApps || canUseMicrophone) && navigator.storage?.getDirectory;
+  sourcePicker.options[0].disabled = !canShareApps;
+  sourcePicker.options[1].disabled = !canUseMicrophone;
+  if (!canShareApps) sourcePicker.value = 'microphone';
 
   // One of: idle, starting, waiting, recording, stopping.
   let state = 'idle';
@@ -435,7 +491,7 @@ function runApp() {
     recordButton.disabled = !supported || state === 'starting' || state === 'stopping';
     recordButton.innerHTML = capturing ? icons.stop : icons.record;
     recordButton.append(state === 'waiting' ? 'waiting for audio...' : capturing ? 'Stop' : 'Record');
-    element('source').textContent = capture?.sourceName ? `Source: ${capture.sourceName}` : 'Choose a source when you record';
+    sourcePicker.disabled = !supported || state !== 'idle';
     element('timer').textContent = state === 'recording' ? formatTime((Date.now() - startedAt) / 1000) : '';
     element('empty').hidden = rows.size > 0 || state === 'recording';
   }
@@ -525,12 +581,12 @@ function runApp() {
       row.peaks = peaks;
       drawWaveform(row.canvas, peaks, playing?.row === row ? playhead() : undefined);
     }).catch(() => {});
-    checkQuality(file).then(({ label, summary }) => {
+    checkQuality(file).then(({ label, tooltip }) => {
       const quality = row.element.querySelector('.quality');
       quality.textContent = label;
       // Hovering shows the reasons, and screen readers read them out with the label.
-      quality.title = summary;
-      quality.setAttribute('aria-label', label ? `Quality: ${label}. ${summary}` : '');
+      quality.dataset.tooltip = tooltip;
+      quality.setAttribute('aria-label', label ? `Quality: ${label}. ${tooltip}` : '');
     });
     return row;
   }
@@ -595,18 +651,15 @@ function runApp() {
       stream?.getTracks().forEach((track) => track.stop());
       if (context.state !== 'closed') context.close();
     };
+    const usingMicrophone = sourcePicker.value === 'microphone';
     let stream;
     let current;
     try {
-      stream = await navigator.mediaDevices.getDisplayMedia({
+      stream = await (usingMicrophone ? openMicrophone() : navigator.mediaDevices.getDisplayMedia({
         // The video is never used, but browsers won't share sound without it.
         video: { displaySurface: 'browser', frameRate: { max: 1 } },
         audio: {
-          autoGainControl: false,
-          echoCancellation: false,
-          noiseSuppression: false,
-          sampleRate: SAMPLE_RATE,
-          channelCount: 2,
+          ...UNPROCESSED_AUDIO,
           // When recording all system sound, leave out anything this page plays.
           restrictOwnAudio: true,
         },
@@ -614,7 +667,7 @@ function runApp() {
         windowAudio: 'window',
         systemAudio: 'include',
         selfBrowserSurface: 'exclude',
-      });
+      }));
       const track = stream.getAudioTracks()[0];
       if (!track) {
         releaseAudio(stream);
@@ -626,13 +679,13 @@ function runApp() {
       await context.resume();
 
       const surface = stream.getVideoTracks()[0]?.getSettings().displaySurface;
-      const sourceName = { browser: 'Tab', window: 'Window', monitor: 'Screen' }[surface] ?? 'Browser';
+      const sourceName = usingMicrophone ? 'Microphone' : { browser: 'Tab', window: 'Window', monitor: 'Screen' }[surface] ?? 'Browser';
       const stamp = new Date();
       const pad = (value) => String(value).padStart(2, '0');
       const name = `${sourceName} ${stamp.getFullYear()}-${pad(stamp.getMonth() + 1)}-${pad(stamp.getDate())} ${pad(stamp.getHours())}.${pad(stamp.getMinutes())}.${pad(stamp.getSeconds())}`;
 
       const worker = new Worker(writerUrl);
-      current = { worker, stream, context, sourceName, fileName: null };
+      current = { worker, stream, context, fileName: null };
       current.source = context.createMediaStreamSource(stream);
       current.release = () => releaseAudio(stream);
       worker.onmessage = ({ data }) => handleWriterMessage(current, data);
@@ -657,8 +710,12 @@ function runApp() {
         liveRow = null;
       }
       state = 'idle';
-      // A cancelled popup also reports "not allowed", and needs no message. The system refusing does.
-      if (error.name !== 'NotAllowedError' || /system/i.test(error.message)) {
+      // A cancelled sharing popup also reports "not allowed", and needs no message. The system refusing does.
+      if (usingMicrophone && error.name === 'NotAllowedError') {
+        showMessage("This page can't use the microphone. Allow it in your browser and system privacy settings, then try again.");
+      } else if (usingMicrophone && error.name === 'NotFoundError') {
+        showMessage('No microphone was found.');
+      } else if (error.name !== 'NotAllowedError' || /system/i.test(error.message)) {
         showMessage(/system/i.test(error.message)
           ? 'Your computer blocked screen sharing for this browser. Allow it in your system privacy settings, then try again.'
           : `Couldn't start recording: ${error.message}`);
@@ -816,21 +873,43 @@ async function runSelfCheck() {
   const crashedView = new DataView(await (await readFile(`${prefix} crashed.wav`)).arrayBuffer());
   check(crashedView.getUint32(40, true) === 24, 'a file still being written should already be playable');
 
-  const context = new AudioContext({ sampleRate: SAMPLE_RATE });
-  await context.resume();
-  const oscillator = new OscillatorNode(context);
-  oscillator.start();
-  const tone = new Worker(writerUrl);
-  const toneMessages = [];
-  tone.onmessage = ({ data }) => toneMessages.push(data);
-  const tap = await startWriter(context, oscillator, tone, `${prefix} tone`);
-  await sleep(1000);
-  tap.disconnect();
-  await context.close();
-  await sleep(100);
-  tone.postMessage({ type: 'stop' });
-  while (!toneMessages.some((m) => m.type === 'stopped')) await sleep(10);
-  tone.terminate();
+  // Records a second of real audio through the audio thread and the writer.
+  async function recordFromSource(createSource, name) {
+    const context = new AudioContext({ sampleRate: SAMPLE_RATE });
+    await context.resume();
+    const worker = new Worker(writerUrl);
+    const messages = [];
+    worker.onmessage = ({ data }) => messages.push(data);
+    const tap = await startWriter(context, createSource(context), worker, name);
+    // Audio can be slow to start on a busy computer, so the second is only counted once sound reaches the file.
+    const waitingSince = Date.now();
+    while (!messages.some((m) => m.type === 'started')) {
+      check(Date.now() - waitingSince < 15000, `no sound arrived for "${name}"`);
+      await sleep(10);
+    }
+    await sleep(1000);
+    tap.disconnect();
+    await context.close();
+    await sleep(100);
+    worker.postMessage({ type: 'stop' });
+    while (!messages.some((m) => m.type === 'stopped')) await sleep(10);
+    worker.terminate();
+    return messages;
+  }
+
+  // web/check.sh gives Chrome a fake microphone that beeps.
+  const microphone = await openMicrophone();
+  await recordFromSource((context) => context.createMediaStreamSource(microphone), `${prefix} microphone`);
+  microphone.getTracks().forEach((track) => track.stop());
+  const micSamples = await frames(`${prefix} microphone.wav`);
+  check(micSamples.length > 0, 'microphone sound should reach the file');
+  check(micSamples.every((s, i, all) => i % 2 === 0 || s === all[i - 1]), 'a one-channel microphone should reach both channels');
+
+  const toneMessages = await recordFromSource((context) => {
+    const oscillator = new OscillatorNode(context);
+    oscillator.start();
+    return oscillator;
+  }, `${prefix} tone`);
   const toneFile = await readFile(`${prefix} tone.wav`);
   const toneSeconds = (toneFile.size - HEADER_SIZE) / BYTES_PER_FRAME / SAMPLE_RATE;
   check(toneSeconds > 0.5, `the audio thread should reach the file, got ${toneSeconds}s`);
@@ -879,7 +958,7 @@ async function runSelfCheck() {
     }
   }
   const lossy = await checkQuality(wav(tones));
-  check(lossy.verdict === 'lossy' && lossy.label === 'Lossy', `a 16 kHz cutoff should look lossy, got ${lossy.summary}`);
+  check(lossy.verdict === 'lossy' && lossy.label === '96-160 kbps', `a 16 kHz cutoff should look lossy, got ${lossy.summary}`);
 
   const history = new LoudnessHistory();
   for (let i = 0; i < 5000; i++) history.append(i === 1234 ? 1 : 0.1);

@@ -1,8 +1,8 @@
-// Captures one app's audio from ScreenCaptureKit into a single file.
+// Captures one app's audio from ScreenCaptureKit, or the default microphone, into a single file.
 import AVFoundation
 import ScreenCaptureKit
 
-final class Recorder: NSObject, SCStreamOutput, SCStreamDelegate {
+final class Recorder: NSObject, SCStreamOutput, SCStreamDelegate, AVCaptureAudioDataOutputSampleBufferDelegate {
     private static let sampleRate = 48000
     private static let framesPerLoudnessValue = sampleRate / 20
 
@@ -14,6 +14,8 @@ final class Recorder: NSObject, SCStreamOutput, SCStreamDelegate {
     private var pendingFrames = 0
     private let queue = DispatchQueue(label: "recorder.audio")
     private var stream: SCStream?
+    private var microphone: AVCaptureSession?
+    private var microphoneObservers: [NSObjectProtocol] = []
     private var output: RecordingFile?
     private var failed = false
 
@@ -41,15 +43,64 @@ final class Recorder: NSObject, SCStreamOutput, SCStreamDelegate {
         }
     }
 
+    func startMicrophone(url: URL) async throws {
+        guard let device = AVCaptureDevice.default(for: .audio) else {
+            throw CocoaError(.fileReadUnknown, userInfo: [NSLocalizedDescriptionKey: "No microphone was found."])
+        }
+        output = RecordingFile(url: url)
+
+        let session = AVCaptureSession()
+        session.addInput(try AVCaptureDeviceInput(device: device))
+        let audioOutput = AVCaptureAudioDataOutput()
+        audioOutput.audioSettings = [
+            AVFormatIDKey: kAudioFormatLinearPCM,
+            AVSampleRateKey: Self.sampleRate,
+            AVNumberOfChannelsKey: 2,
+            AVLinearPCMBitDepthKey: 32,
+            AVLinearPCMIsFloatKey: true,
+            AVLinearPCMIsBigEndianKey: false,
+            AVLinearPCMIsNonInterleaved: false,
+        ]
+        audioOutput.setSampleBufferDelegate(self, queue: queue)
+        session.addOutput(audioOutput)
+
+        let center = NotificationCenter.default
+        microphoneObservers = [
+            center.addObserver(forName: .AVCaptureSessionRuntimeError, object: session, queue: nil) { [weak self] note in
+                let error = note.userInfo?[AVCaptureSessionErrorKey] as? Error ?? CocoaError(.fileReadUnknown)
+                self?.onUnexpectedStop?(error)
+            },
+            center.addObserver(forName: .AVCaptureDeviceWasDisconnected, object: device, queue: nil) { [weak self] _ in
+                self?.onUnexpectedStop?(CocoaError(.fileReadUnknown, userInfo: [
+                    NSLocalizedDescriptionKey: "The microphone was disconnected.",
+                ]))
+            },
+        ]
+        microphone = session
+        session.startRunning()
+    }
+
     // Returns false when no audio ever arrived, in which case no file is left behind.
     func stop() async -> Bool {
         try? await stream?.stopCapture()
         stream = nil
+        microphoneObservers.forEach(NotificationCenter.default.removeObserver)
+        microphoneObservers = []
+        microphone?.stopRunning()
+        microphone = nil
         return await finishWriting()
     }
 
     func stream(_ stream: SCStream, didOutputSampleBuffer buffer: CMSampleBuffer, of type: SCStreamOutputType) {
-        guard type == .audio, buffer.isValid, buffer.numSamples > 0, !failed, let output else { return }
+        if type == .audio { record(buffer) }
+    }
+
+    func captureOutput(_ output: AVCaptureOutput, didOutput buffer: CMSampleBuffer, from connection: AVCaptureConnection) {
+        record(buffer)
+    }
+
+    private func record(_ buffer: CMSampleBuffer) {
+        guard buffer.isValid, buffer.numSamples > 0, !failed, let output else { return }
         let wasStarted = output.hasStarted
         do {
             try output.append(buffer)

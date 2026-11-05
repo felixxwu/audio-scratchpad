@@ -1,4 +1,4 @@
-// Captures one app and its child processes through WASAPI process loopback into a single file. Needs Windows 10 2004 or newer.
+// Captures one app and its child processes through WASAPI process loopback, or the default microphone, into a single file. Needs Windows 10 2004 or newer.
 using System;
 using System.IO;
 using System.Runtime.InteropServices;
@@ -18,7 +18,8 @@ sealed class Recorder
 
     const int FramesPerLoudnessValue = RecordingFile.SampleRate / 20;
 
-    public void Start(int processId, string path)
+    // With no process ID, this records the microphone.
+    public void Start(int? processId, string path)
     {
         output = new RecordingFile(path);
         // Audio interfaces activated this way need a thread outside the window's single-threaded apartment.
@@ -37,7 +38,7 @@ sealed class Recorder
         return output.HasStarted;
     }
 
-    void Capture(int processId)
+    void Capture(int? processId)
     {
         IAudioClient client = null;
         IAudioCaptureClient capture = null;
@@ -45,7 +46,7 @@ sealed class Recorder
         using (var ready = new AutoResetEvent(false))
         try
         {
-            client = Native.ActivateProcessLoopback(processId);
+            client = processId.HasValue ? Native.ActivateProcessLoopback(processId.Value) : Native.ActivateMicrophone();
             var format = new WaveFormatEx
             {
                 wFormatTag = 3, // IEEE float
@@ -55,8 +56,9 @@ sealed class Recorder
                 nBlockAlign = RecordingFile.Channels * 4,
                 wBitsPerSample = 32,
             };
-            const uint loopback = 0x00020000, eventCallback = 0x00040000, autoConvert = 0x80000000;
-            client.Initialize(0, loopback | eventCallback | autoConvert, 2000000, 0, ref format, IntPtr.Zero);
+            const uint loopback = 0x00020000, eventCallback = 0x00040000, autoConvert = 0x80000000, betterResampling = 0x08000000;
+            uint sourceFlag = processId.HasValue ? loopback : betterResampling;
+            client.Initialize(0, sourceFlag | eventCallback | autoConvert, 2000000, 0, ref format, IntPtr.Zero);
 
             client.SetEventHandle(ready.SafeWaitHandle.DangerousGetHandle());
             var iid = typeof(IAudioCaptureClient).GUID;
@@ -75,6 +77,8 @@ sealed class Recorder
         }
         catch (Exception error)
         {
+            if (error is UnauthorizedAccessException && !processId.HasValue)
+                error = new InvalidOperationException("Windows blocked the microphone. Allow desktop apps to use it in Privacy settings, then try again.");
             if (!stopping && OnUnexpectedStop != null) OnUnexpectedStop(error);
         }
         finally
@@ -170,6 +174,22 @@ interface IActivateAudioInterfaceCompletionHandler
 [ComImport, Guid("94ea2b94-e9cc-49e0-c0ff-ee64ca8f5b90"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
 interface IAgileObject { }
 
+[ComImport, Guid("BCDE0395-E52F-467C-8E3D-C4579291692E")]
+class MMDeviceEnumerator { }
+
+[ComImport, Guid("A95664D2-9614-4F35-A746-DE8DB63617E6"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+interface IMMDeviceEnumerator
+{
+    void EnumAudioEndpoints(int dataFlow, int stateMask, out IntPtr devices);
+    void GetDefaultAudioEndpoint(int dataFlow, int role, out IMMDevice device);
+}
+
+[ComImport, Guid("D666063F-1587-4E43-81F1-B948E807363F"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+interface IMMDevice
+{
+    void Activate(ref Guid iid, int context, IntPtr parameters, [MarshalAs(UnmanagedType.IUnknown)] out object activated);
+}
+
 static class Native
 {
     [StructLayout(LayoutKind.Sequential)]
@@ -196,6 +216,32 @@ static class Native
     static extern int ActivateAudioInterfaceAsync(
         [MarshalAs(UnmanagedType.LPWStr)] string device, ref Guid iid, ref BlobPropVariant parameters,
         IActivateAudioInterfaceCompletionHandler handler, out IActivateAudioInterfaceAsyncOperation operation);
+
+    public static IAudioClient ActivateMicrophone()
+    {
+        const int capture = 1, consoleRole = 0, anyContext = 23;
+        const int notFound = unchecked((int)0x80070490);
+        var enumerator = (IMMDeviceEnumerator)new MMDeviceEnumerator();
+        IMMDevice device = null;
+        try
+        {
+            enumerator.GetDefaultAudioEndpoint(capture, consoleRole, out device);
+            var iid = typeof(IAudioClient).GUID;
+            object activated;
+            device.Activate(ref iid, anyContext, IntPtr.Zero, out activated);
+            return (IAudioClient)activated;
+        }
+        catch (COMException error)
+        {
+            if (error.HResult == notFound) throw new InvalidOperationException("No microphone was found.");
+            throw;
+        }
+        finally
+        {
+            if (device != null) Marshal.ReleaseComObject(device);
+            Marshal.ReleaseComObject(enumerator);
+        }
+    }
 
     public static IAudioClient ActivateProcessLoopback(int processId)
     {

@@ -5,9 +5,11 @@ import JavaScriptCore
 
 struct QualityReport: Equatable {
     let verdict: String
-    // A word or two for the list, such as "Lossy" or "22.05 kHz". Empty when there's nothing to judge.
+    // A few words for the list, such as "96-160 kbps" or "22.05 kHz". Empty when there's nothing to judge.
     let label: String
     let summary: String
+    // What the label means, shown when hovering over it.
+    let tooltip: String
 }
 
 struct QualityChecker {
@@ -72,7 +74,8 @@ struct QualityChecker {
         guard failure == nil, let report else { throw scriptError(failure) }
         return QualityReport(verdict: report.forProperty("verdict").toString(),
                              label: report.forProperty("label").toString(),
-                             summary: report.forProperty("summary").toString())
+                             summary: report.forProperty("summary").toString(),
+                             tooltip: report.forProperty("tooltip").toString())
     }
 
     private func scriptError(_ message: String?) -> Error {

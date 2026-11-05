@@ -9,9 +9,11 @@ using System.Runtime.InteropServices;
 sealed class QualityReport
 {
     public string Verdict;
-    // A word or two for the list, such as "Lossy" or "22.05 kHz". Empty when there's nothing to judge.
+    // A few words for the list, such as "96-160 kbps" or "22.05 kHz". Empty when there's nothing to judge.
     public string Label;
     public string Summary;
+    // What the label means, shown when hovering over it.
+    public string Tooltip;
 }
 
 static class Quality
@@ -72,10 +74,10 @@ static class Quality
                 Call(JsGetPropertyIdFromName("excerptSamples", out name));
                 Call(JsSetProperty(global, name, array, true));
 
-                string[] parts = Run("(function (r) { return [r.verdict, r.label, r.summary].join('\\n'); })(" +
+                string[] parts = Run("(function (r) { return [r.verdict, r.label, r.summary, r.tooltip].join('\\n'); })(" +
                     "AudioQuality.analyzeExcerpts(excerptSamples, " + channels + ", " + sampleRate + ", [" + string.Join(",", ranges) + "]))")
                     .Split('\n');
-                return new QualityReport { Verdict = parts[0], Label = parts[1], Summary = parts[2] };
+                return new QualityReport { Verdict = parts[0], Label = parts[1], Summary = parts[2], Tooltip = parts[3] };
             }
         }
         finally

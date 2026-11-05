@@ -180,7 +180,7 @@ static class SelfCheck
             }
         }
         var lossy = check(tones);
-        Require(lossy.Verdict == "lossy" && lossy.Label == "Lossy", "a 16 kHz cutoff should look lossy, got " + lossy.Summary);
+        Require(lossy.Verdict == "lossy" && lossy.Label == "96-160 kbps", "a 16 kHz cutoff should look lossy, got " + lossy.Summary);
     }
 
     static void Main()

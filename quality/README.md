@@ -22,8 +22,9 @@ the script.
 // Node: const AudioQuality = require("./web/audio-quality.js");
 const report = AudioQuality.analyze([audioBuffer.getChannelData(0), audioBuffer.getChannelData(1)], audioBuffer.sampleRate);
 report.verdict; // "lossless", "lossy", "upsampled" or "silent"
-report.label; // "Lossless", "Lossy" or the source sample rate, e.g. "22.05 kHz"
+report.label; // "Lossless", the estimated bitrate e.g. "96-160 kbps" (or "Lossy" if it can't be estimated), or a source sample rate below 44.1 kHz e.g. "22.05 kHz"
 report.summary; // e.g. "Likely from a lossy file at about 96-160 kbps: it cuts off sharply at 16.1 kHz, ..."
+report.tooltip; // e.g. "Estimated bitrate, based on the source material."
 ```
 
 Long recordings don't need to be read whole. `excerptRanges(frames, sampleRate)` lists which parts to read: 24 parts of
@@ -41,7 +42,8 @@ wall), `lossy` (hole share, reason, bitrate range), `sourceSampleRate`, `bitDept
   44.1 kHz audio). Encoders cut wherever their bitrate allows (for example about 16 kHz for 128 kbps MP3). So the
   position of the wall tells the two apart, and for lossy files it gives a rough bitrate.
 - **Holes:** in the high frequencies, lossy encoders switch off bands that they judge inaudible, frame by frame. That
-  leaves short gaps that real recordings, which always have some noise there, don't have. This decides the cases where
+  leaves short gaps that real recordings, which always have some noise there, don't have. Each frequency is compared
+  with its own usual level, so music that simply fades towards its cutoff doesn't count. This decides the cases where
   the cutoff alone can't.
 - **Bit depth:** if nothing has processed the samples since conversion, 16-bit audio stored as float still sits on a
   grid of 1/32768 steps.
@@ -72,6 +74,16 @@ The script was tested on five real lossless recordings from archive.org: four 24
 - **Lossless sources:** none of the sources was flagged, including a noisy chiptune that has content up to 24 kHz.
 - **Real files:** the check found an MP3 cutoff at 16 kHz in a "lossless" live FLAC from 2000. The spectrogram
   confirms it: a 16 kHz wall with the spikes MP3 leaves up to 17 kHz.
+
+The hole measure was later changed to ignore fades, after it flagged lossless Spotify recordings and a known lossless
+master as 256+ kbps. That version was scored on 86 files: three lossless masters and their encodes, eight real MP3s and
+two Spotify lossless recordings. Those five archive.org recordings haven't been re-scored with it.
+
+- **Fixed:** every lossless source and its 16-bit and 24-bit copies now read as lossless. Before, several read as lossy.
+- **Still caught:** all eight real MP3s and every MP3, Opus and AAC encode except one 256 kbps AAC file.
+- **Not settled:** files resampled down to 16 or 32 kHz, and one to 44.1 kHz, got a bitrate label instead of their
+  sample rate or "Lossless". The same happened before the change. This run used ffmpeg's built-in resampler rather than
+  soxr, which may be the cause.
 
 ### Limits
 

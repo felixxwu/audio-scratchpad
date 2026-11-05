@@ -6,8 +6,9 @@
 //
 //   const report = AudioQuality.analyze([leftFloat32Array, rightFloat32Array], 48000);
 //   report.verdict   // "lossless", "lossy", "upsampled" or "silent"
-//   report.label     // a word or two for a list row, such as "Lossy" or "22.05 kHz"
+//   report.label     // a few words for a list row, such as "96-160 kbps", "Lossless" or "22.05 kHz"
 //   report.summary   // a sentence describing what was found
+//   report.tooltip   // a short note on what the label means, for hovering over it
 //
 // Long recordings don't need to be read whole. excerptRanges(frames, sampleRate) says which parts of a file to read
 // (about 36 seconds in all, spread through it), and analyzeExcerpts takes those parts back to back as interleaved
@@ -26,14 +27,14 @@
   // LAME (MP3), ffmpeg's AAC, Vorbis and Opus: the same cutoff can mean different bitrates in different encoders, and
   // mono files get more bandwidth for the same bitrate, so the bitrate is only a rough guide.
   var LOSSY_CUTOFFS = [
-    { below: 9000, label: "a very low bitrate (48 kbps or less)" },
-    { below: 13000, label: "a low bitrate (about 64 kbps)" },
-    { below: 16500, label: "about 96-160 kbps" },
-    { below: 18000, label: "about 128-160 kbps" },
-    { below: 19600, label: "about 160-224 kbps" },
-    { below: 20000, label: "about 192-320 kbps" },
-    { below: 20450, label: "about 192-320 kbps, or Opus at any bitrate" },
-    { below: Infinity, label: "a high bitrate (256 kbps or more)" },
+    { below: 9000, label: "a very low bitrate (48 kbps or less)", short: "Up to 48 kbps" },
+    { below: 13000, label: "a low bitrate (about 64 kbps)", short: "~64 kbps" },
+    { below: 16500, label: "about 96-160 kbps", short: "96-160 kbps" },
+    { below: 18000, label: "about 128-160 kbps", short: "128-160 kbps" },
+    { below: 19600, label: "about 160-224 kbps", short: "160-224 kbps" },
+    { below: 20000, label: "about 192-320 kbps", short: "192-320 kbps" },
+    { below: 20450, label: "about 192-320 kbps, or Opus at any bitrate", short: "192-320 kbps" },
+    { below: Infinity, label: "a high bitrate (256 kbps or more)", short: "256+ kbps" },
   ];
 
   // Common sample rates. A cutoff just below half of one of these suggests the audio was recorded or saved at that rate.
@@ -44,7 +45,7 @@
   var EXCERPT_SECONDS = 1.5;
   var EXCERPT_COUNT = 24;
 
-  // Share of high-frequency bins that are holes. Lossless and resampled music measured 0-0.6%; MP3 and Vorbis 1-30%.
+  // Share of high-frequency bins that are holes. Lossless and resampled music measured 0.06-0.15%; MP3 about 0.9-8%.
   var HOLES_AT_STANDARD_CUTOFF = 0.008;
   var HOLES_WITHOUT_CUTOFF = 0.012;
 
@@ -94,6 +95,7 @@
       verdict: "lossless",
       label: "",
       summary: "",
+      tooltip: "",
       bandwidth: null,
       lossy: null,
       sourceSampleRate: null,
@@ -105,6 +107,7 @@
     if (!spectra) {
       report.verdict = "silent";
       report.summary = "The recording is too quiet or too short to judge its quality.";
+      report.tooltip = report.summary;
       return report;
     }
 
@@ -131,13 +134,18 @@
     }
     if (lossy.likely) {
       report.verdict = "lossy";
-      lossy.bitrate = cutoff.brickWall ? guessBitrate(cutoff.hz) : null; // no cutoff to judge it by
+      var estimate = cutoff.brickWall ? guessBitrate(cutoff.hz) : null; // no cutoff to judge it by
+      lossy.bitrate = estimate && estimate.label;
+      lossy.bitrateLabel = estimate && estimate.short;
     }
 
-    report.label = report.verdict === "lossy" ? "Lossy"
-      : report.verdict === "upsampled" ? report.sourceSampleRate / 1000 + " kHz"
+    report.label = report.verdict === "lossy" ? lossy.bitrateLabel || "Lossy"
+      : report.verdict === "upsampled" && report.sourceSampleRate < 44100 ? report.sourceSampleRate / 1000 + " kHz"
       : "Lossless";
     report.summary = describe(report);
+    report.tooltip = (report.verdict === "lossy" ? (lossy.bitrateLabel ? "Estimated bitrate" : "Estimated to be lossy")
+      : report.verdict === "upsampled" && report.sourceSampleRate < 44100 ? "Estimated sample rate"
+      : "Estimated to be lossless") + ", based on the source material.";
     return report;
   }
 
@@ -332,16 +340,25 @@
     var frames = spectra.shortFrames;
     var floor = cutoff.floorDb;
 
-    // Holes: in frames with real high-frequency content, the share of bins more than 30 dB under that frame's median.
+    // Only frames with real high-frequency content can show holes.
+    var band = new Float64Array(kHigh - kLow + 1);
+    var judged = [];
+    for (var f = 0; f < frames.length; f++) {
+      for (var k = kLow; k <= kHigh; k++) band[k - kLow] = frames[f][k];
+      var level = Float64Array.from(band).sort()[band.length >> 1];
+      if (level >= floor + 25) judged.push(frames[f]);
+    }
+    if (!judged.length) return result;
+
+    // Music usually fades towards its cutoff, so each bin is judged against its own usual level, or the fade would count.
+    var usual = percentileSpectrum(judged, spectra.shortBins, 0.5);
+
+    // Holes: the share of bins more than 30 dB under that frame's median.
     var holeCount = 0;
     var cellCount = 0;
-    var band = new Float64Array(kHigh - kLow + 1);
-    for (var f = 0; f < frames.length; f++) {
-      var frame = frames[f];
-      for (var k = kLow; k <= kHigh; k++) band[k - kLow] = frame[k];
-      var sorted = Float64Array.from(band).sort();
-      var median = sorted[sorted.length >> 1];
-      if (median < floor + 25) continue;
+    for (f = 0; f < judged.length; f++) {
+      for (k = kLow; k <= kHigh; k++) band[k - kLow] = judged[f][k] - usual[k];
+      var median = Float64Array.from(band).sort()[band.length >> 1];
       for (k = 0; k < band.length; k++) {
         if (band[k] < median - 30) holeCount++;
       }
@@ -353,16 +370,17 @@
 
   function guessBitrate(hz) {
     for (var i = 0; i < LOSSY_CUTOFFS.length; i++) {
-      if (hz < LOSSY_CUTOFFS[i].below) return LOSSY_CUTOFFS[i].label;
+      if (hz < LOSSY_CUTOFFS[i].below) return LOSSY_CUTOFFS[i];
     }
   }
 
-  // Resamplers put their filter's edge at about 97% of the old Nyquist frequency (95-98.5% across common resamplers).
+  // Resamplers put their filter's edge at about 97% of the old Nyquist frequency (94-98.5% across real recordings, as the
+  // measured edge moves a little with the music).
   function matchSampleRate(hz, sampleRate) {
     for (var i = 0; i < SAMPLE_RATES.length; i++) {
       var rate = SAMPLE_RATES[i];
       if (rate > sampleRate) break;
-      if (hz >= 0.95 * rate / 2 && hz <= 0.985 * rate / 2) return rate;
+      if (hz >= 0.94 * rate / 2 && hz <= 0.985 * rate / 2) return rate;
     }
     return null;
   }

@@ -139,7 +139,7 @@ private func checkQuality() throws {
         }
     }
     let lossy = try check(tones)
-    precondition(lossy.verdict == "lossy" && lossy.label == "Lossy", "a 16 kHz cutoff should look lossy, got \(lossy)")
+    precondition(lossy.verdict == "lossy" && lossy.label == "96-160 kbps", "a 16 kHz cutoff should look lossy, got \(lossy)")
 }
 
 @main

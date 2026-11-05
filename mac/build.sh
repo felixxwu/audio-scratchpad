@@ -34,6 +34,7 @@ cat > "$app/Contents/Info.plist" <<PLIST
   <key>CFBundleVersion</key><string>$version</string>
   <key>LSMinimumSystemVersion</key><string>14.0</string>
   <key>NSHighResolutionCapable</key><true/>
+  <key>NSMicrophoneUsageDescription</key><string>Audio Scratchpad records the microphone when you choose it as the source.</string>
 </dict>
 </plist>
 PLIST

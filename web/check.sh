@@ -18,6 +18,7 @@ python3 -m http.server "$port" --bind 127.0.0.1 >"$work/log" 2>&1 &
 server=$!
 sleep 1
 "$chrome" --headless=new --no-sandbox --no-first-run --autoplay-policy=no-user-gesture-required \
+    --use-fake-device-for-media-stream --use-fake-ui-for-media-stream \
     --user-data-dir="$work/profile" "http://localhost:$port/index.html?selfcheck" >/dev/null 2>&1 &
 browser=$!
 trap 'kill "$server" "$browser" 2>/dev/null; sleep 1; rm -rf "$work"' EXIT

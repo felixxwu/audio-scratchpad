@@ -1,4 +1,4 @@
-// A small Mac app that records the sound of one chosen app to .wav files and lists them.
+// A small Mac app that records the sound of one chosen app, or the microphone, to .wav files and lists them.
 import AVFoundation
 import ScreenCaptureKit
 import SwiftUI
@@ -11,9 +11,17 @@ struct Recording: Identifiable {
 }
 
 struct AudioSource: Identifiable {
+    static let microphone = AudioSource()
+
     let id: String
     let name: String
     let icon: NSImage
+
+    private init() {
+        id = "microphone"
+        name = "Microphone"
+        icon = NSImage(systemSymbolName: "mic", accessibilityDescription: nil) ?? NSImage()
+    }
 
     init?(_ app: NSRunningApplication) {
         guard let bundleID = app.bundleIdentifier else { return nil }
@@ -53,6 +61,7 @@ final class AppModel: NSObject, ObservableObject, AVAudioPlayerDelegate {
     @Published var isWaitingForAudio = false
     @Published var message: String?
     @Published var needsPermission = false
+    private var permissionPane = "Privacy_ScreenCapture"
     @Published var playingURL: URL?
     @Published var waveforms: [URL: [Float]] = [:]
     @Published var qualities: [URL: QualityReport] = [:]
@@ -71,7 +80,7 @@ final class AppModel: NSObject, ObservableObject, AVAudioPlayerDelegate {
     var isCapturing: Bool { isRecording || isWaitingForAudio }
 
     func refreshSources() {
-        sources = NSWorkspace.shared.runningApplications
+        sources = [.microphone] + NSWorkspace.shared.runningApplications
             .filter { $0.activationPolicy == .regular && $0 != .current }
             .compactMap(AudioSource.init)
             .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
@@ -118,7 +127,7 @@ final class AppModel: NSObject, ObservableObject, AVAudioPlayerDelegate {
             do {
                 return try sharedQualityChecker.get().check(url)
             } catch {
-                return QualityReport(verdict: "unknown", label: "", summary: error.localizedDescription)
+                return QualityReport(verdict: "unknown", label: "", summary: error.localizedDescription, tooltip: error.localizedDescription)
             }
         }
         qualityQueue = Task { _ = await task.value }
@@ -133,14 +142,24 @@ final class AppModel: NSObject, ObservableObject, AVAudioPlayerDelegate {
         needsPermission = false
         stopPlayback()
         do {
-            let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: false)
-            guard let display = content.displays.first,
-                  let app = content.applications.first(where: { $0.bundleIdentifier == source.id })
-            else {
-                message = "\(source.name) isn't available to record. Is it still open?"
-                return
+            var appFilter: SCContentFilter?
+            if source.id == AudioSource.microphone.id {
+                guard await AVCaptureDevice.requestAccess(for: .audio) else {
+                    needsPermission = true
+                    permissionPane = "Privacy_Microphone"
+                    message = "Audio Scratchpad needs permission to use the microphone. Allow it in System Settings, then try again."
+                    return
+                }
+            } else {
+                let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: false)
+                guard let display = content.displays.first,
+                      let app = content.applications.first(where: { $0.bundleIdentifier == source.id })
+                else {
+                    message = "\(source.name) isn't available to record. Is it still open?"
+                    return
+                }
+                appFilter = SCContentFilter(display: display, including: [app], exceptingWindows: [])
             }
-            let filter = SCContentFilter(display: display, including: [app], exceptingWindows: [])
             let url = newFileURL(appName: source.name)
             let recorder = Recorder()
             recorder.onUnexpectedStop = { [weak self, weak recorder] error in
@@ -164,7 +183,11 @@ final class AppModel: NSObject, ObservableObject, AVAudioPlayerDelegate {
             currentURL = url
             self.recorder = recorder
             isWaitingForAudio = true
-            try await recorder.start(filter: filter, url: url)
+            if let appFilter {
+                try await recorder.start(filter: appFilter, url: url)
+            } else {
+                try await recorder.startMicrophone(url: url)
+            }
         } catch {
             recorder = nil
             isWaitingForAudio = false
@@ -185,7 +208,7 @@ final class AppModel: NSObject, ObservableObject, AVAudioPlayerDelegate {
         if let reason {
             message = "Recording stopped: \(reason)"
         } else if !saved {
-            message = "No sound came from that app, so nothing was saved."
+            message = "No sound came from that source, so nothing was saved."
         }
         refreshSources()
         refreshRecordings()
@@ -251,7 +274,7 @@ final class AppModel: NSObject, ObservableObject, AVAudioPlayerDelegate {
     }
 
     func openPermissionSettings() {
-        NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture")!)
+        NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?\(permissionPane)")!)
     }
 
     nonisolated func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
@@ -284,6 +307,7 @@ final class AppModel: NSObject, ObservableObject, AVAudioPlayerDelegate {
         let nsError = error as NSError
         if nsError.domain == SCStreamErrorDomain && nsError.code == SCStreamError.Code.userDeclined.rawValue {
             needsPermission = true
+            permissionPane = "Privacy_ScreenCapture"
             message = "Audio Scratchpad needs permission to record audio. Allow it in System Settings, then reopen the app."
         } else {
             message = error.localizedDescription
@@ -386,11 +410,17 @@ final class FileDragView: NSView, NSDraggingSource {
     }
 }
 
-// Whether a recording is lossless, lossy or upsampled, with the reasons on hover, and a loading bar until that's known.
+final class TooltipState: ObservableObject {
+    @Published var isShowing = false
+}
+
+// Whether a recording is lossless, lossy or upsampled, with a note on hover, and a loading bar until that's known.
 // Always the same width, so the waveforms in every row line up.
 struct QualityLabel: View {
     let report: QualityReport?
     var isLoading = false
+    // An object rather than @State, which doesn't compile with only the command line tools installed.
+    @StateObject private var tooltip = TooltipState()
 
     var body: some View {
         if isLoading && report == nil {
@@ -398,7 +428,7 @@ struct QualityLabel: View {
                 .progressViewStyle(.linear)
                 .controlSize(.small)
                 .frame(width: 44)
-                .frame(width: 58, alignment: .trailing)
+                .frame(width: 76, alignment: .trailing)
                 .accessibilityLabel("Checking quality")
         } else {
             label
@@ -410,9 +440,14 @@ struct QualityLabel: View {
             .font(.caption)
             .foregroundStyle(.secondary)
             .lineLimit(1)
-            .frame(width: 58, alignment: .trailing)
-            .help(report?.summary ?? "")
-            .accessibilityLabel(report.map { "Quality: \($0.label). \($0.summary)" } ?? "")
+            .frame(width: 76, alignment: .trailing)
+            .contentShape(Rectangle())
+            // A popover, because SwiftUI's .help only appears after a delay.
+            .onHover { tooltip.isShowing = $0 && !(report?.tooltip.isEmpty ?? true) }
+            .popover(isPresented: $tooltip.isShowing, arrowEdge: .top) {
+                Text(report?.tooltip ?? "").font(.caption).padding(8)
+            }
+            .accessibilityLabel(report.map { "Quality: \($0.label). \($0.tooltip)" } ?? "")
             .accessibilityHidden(report?.label.isEmpty ?? true)
     }
 }
@@ -500,7 +535,7 @@ struct ContentView: View {
     private var controls: some View {
         HStack {
             Picker("Source", selection: $model.selectedSource) {
-                Text("Choose an app…").tag(String?.none)
+                Text("Choose a source…").tag(String?.none)
                 ForEach(model.sources) { source in
                     Label { Text(source.name) } icon: { Image(nsImage: source.icon) }
                         .tag(Optional(source.id))

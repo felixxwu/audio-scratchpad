@@ -34,6 +34,10 @@ static class Theme
         "M3.2,3.2 V1.9 Q3.2,0.5 4.6,0.5 H8.5 L12.5,4.5 V11.6 Q12.5,13 11.1,13 H9.7 " +
         "M8.5,0.5 V3.5 Q8.5,4.5 9.5,4.5 H12.5";
     public const string Copied = "M0.6,6.4 L4.6,10.4 L12.4,1";
+    public const string Microphone =
+        "M7,1 Q9,1 9,3 V7 Q9,9 7,9 Q5,9 5,7 V3 Q5,1 7,1 Z " +
+        "M3,6.5 V7 Q3,11 7,11 Q11,11 11,7 V6.5 " +
+        "M7,11 V13 M5,13 H9";
     public const string Folder =
         "M2,0.5 H4 Q4.8,0.5 5.3,1 L6,1.8 H12.5 Q14,1.8 14,3.3 V10 Q14,11.5 12.5,11.5 H2 Q0.5,11.5 0.5,10 V2 Q0.5,0.5 2,0.5 Z " +
         "M1.7,3.7 H12.8";

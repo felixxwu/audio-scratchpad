@@ -5,7 +5,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Audio Scratchpad</title>
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><rect x='2' y='2' width='12' height='12' fill='%23ffdf1f' stroke='%231a1814' stroke-width='2'/></svg>">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='-4.5 -4.5 56 56'><path fill='%23b39400' d='M44 5H47V47H5V44H44Z'/><rect width='42' height='42' fill='%23ffdf1f'/><circle cx='21' cy='21' r='6.75' fill='none' stroke='%231a1814' stroke-width='1.65'/><circle cx='21' cy='21' r='3.825' fill='%231a1814'/></svg>">
 <style>
   @font-face { font-family: 'Archivo'; font-stretch: 125%; font-weight: 400; font-display: swap; src: url(archivo-wide.woff2) format('woff2'); }
   @font-face { font-family: 'Archivo'; font-stretch: 125%; font-weight: 900; font-display: swap; src: url(archivo-wide-black.woff2) format('woff2'); }
@@ -19,6 +19,7 @@
     --accent: #1a1814;
     --highlight: #ffdf1f;
     --on-highlight: #1a1814;
+    --highlight-shadow: #b39400;
     --record: #e8321e;
     --chevron: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'><path d='M2 4l4 4 4-4' fill='none' stroke='%231a1814' stroke-width='2.4' stroke-linecap='square'/></svg>");
   }
@@ -46,7 +47,7 @@
   h1 {
     display: inline-block;
     margin: 0 0 16px;
-    padding: 4px 8px;
+    padding: 4px 30px;
     background: var(--text);
     color: var(--bg);
     font-size: 15px;
@@ -101,25 +102,25 @@
     min-height: 42px;
     padding: 0 18px;
     justify-content: center;
-    border: 2px solid var(--line);
+    border: 2px solid var(--highlight);
     border-radius: 0;
     background: var(--highlight);
-    box-shadow: 3px 3px 0 var(--line);
+    box-shadow: 0 0 0 2px var(--bg), 5px 5px 0 var(--highlight-shadow);
     color: var(--on-highlight);
     font: inherit;
     font-weight: 900;
     text-transform: uppercase;
     cursor: pointer;
   }
-  #record:active:not(:disabled) { transform: translate(3px, 3px); box-shadow: none; }
-  #record:disabled { opacity: 0.5; cursor: default; }
+  #record:active:not(:disabled) { transform: translate(5px, 5px); box-shadow: 0 0 0 2px var(--bg); }
+  #record:disabled { border-style: dashed; border-color: var(--muted); background: transparent; box-shadow: none; color: var(--muted); cursor: default; }
   #message { margin: 12px 0 0; padding: 8px 12px; border: 2px solid var(--line); }
   #message:empty { display: none; }
   hr { margin: 20px 0 0; border: 0; border-top: 1px solid var(--line); }
   #list { margin: 0; padding: 0; list-style: none; }
   #list li {
     display: grid;
-    grid-template-columns: 32px minmax(0, 1fr) 116px 44px 32px 32px;
+    grid-template-columns: 32px minmax(0, 1fr) 116px 51px 32px 32px;
     align-items: center;
     gap: 4px;
     padding: 6px 0;
@@ -128,7 +129,7 @@
   #list li:last-child { border-bottom: 0; }
   #list canvas { display: block; width: 100%; height: 28px; cursor: pointer; touch-action: none; }
   #list li.live canvas { cursor: default; }
-  .time { font-size: 11px; font-variant-numeric: tabular-nums; text-align: right; }
+  .time { padding-right: 7px; font-size: 11px; font-variant-numeric: tabular-nums; text-align: right; }
   .quality { position: relative; font-size: 11px; text-align: right; text-transform: uppercase; white-space: nowrap; }
   .quality.lost { justify-self: end; padding: 1px 4px; background: var(--highlight); color: var(--on-highlight); }
   /* Drawn here rather than with a title attribute, which browsers only show after a delay. */

@@ -10,6 +10,7 @@ static class Theme
     const string ControlColor = "#2A261F";
     const string HighlightColor = "#FFDF1F";
     const string OnHighlightColor = "#1A1814";
+    const string MutedColor = "#A39C8E";
 
     public static readonly SolidColorBrush Text = Brush(TextColor);
     public static readonly SolidColorBrush Background = Brush(BackgroundColor);
@@ -106,7 +107,7 @@ static class Theme
     </Setter>
   </Style>
 
-  <!-- A yellow key with a hard shadow that it presses down into. -->
+  <!-- A yellow key with a hard gold shadow that it presses down into. -->
   <Style x:Key='Record' TargetType='Button'>
     <Setter Property='FocusVisualStyle' Value='{StaticResource Focus}' />
     <Setter Property='Foreground' Value='" + OnHighlightColor + @"' />
@@ -114,15 +115,25 @@ static class Theme
     <Setter Property='Template'>
       <Setter.Value>
         <ControlTemplate TargetType='Button'>
-          <Grid x:Name='Root' Margin='0,0,3,3'>
-            <Border Background='" + TextColor + @"' Margin='3,3,-3,-3' />
-            <Border x:Name='Box' Background='" + HighlightColor + @"' BorderBrush='" + TextColor + @"' BorderThickness='2' Padding='18,0'>
-              <ContentPresenter HorizontalAlignment='Center' VerticalAlignment='Center' />
-            </Border>
+          <Grid x:Name='Root' Margin='0,0,5,5'>
+            <Border x:Name='Shadow' Background='#B39400' Margin='5,5,-5,-5' />
+            <Grid x:Name='Key'>
+              <Border Background='" + BackgroundColor + @"' Margin='-2' />
+              <Border x:Name='Box' Background='" + HighlightColor + @"' BorderBrush='" + HighlightColor + @"' BorderThickness='2' Padding='18,0'>
+                <ContentPresenter HorizontalAlignment='Center' VerticalAlignment='Center' />
+              </Border>
+            </Grid>
+            <Rectangle x:Name='Dashes' Stroke='" + MutedColor + @"' StrokeThickness='2' StrokeDashArray='2 1.5' Visibility='Collapsed' />
           </Grid>
           <ControlTemplate.Triggers>
-            <Trigger Property='IsPressed' Value='True'><Setter TargetName='Box' Property='Margin' Value='3,3,-3,-3' /></Trigger>
-            <Trigger Property='IsEnabled' Value='False'><Setter TargetName='Root' Property='Opacity' Value='0.5' /></Trigger>
+            <Trigger Property='IsPressed' Value='True'><Setter TargetName='Key' Property='Margin' Value='5,5,-5,-5' /></Trigger>
+            <Trigger Property='IsEnabled' Value='False'>
+              <Setter TargetName='Shadow' Property='Visibility' Value='Hidden' />
+              <Setter TargetName='Box' Property='Background' Value='Transparent' />
+              <Setter TargetName='Box' Property='BorderBrush' Value='Transparent' />
+              <Setter TargetName='Dashes' Property='Visibility' Value='Visible' />
+              <Setter Property='Foreground' Value='" + MutedColor + @"' />
+            </Trigger>
           </ControlTemplate.Triggers>
         </ControlTemplate>
       </Setter.Value>

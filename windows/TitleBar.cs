@@ -13,7 +13,7 @@ sealed partial class MainWindow
     {
         var title = new Border
         {
-            Background = Theme.Text, Padding = new Thickness(8, 4, 8, 4),
+            Background = Theme.Text, Padding = new Thickness(30, 4, 30, 4),
             HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(16, 0, 0, 0),
             Child = new TextBlock { Text = Title.ToUpperInvariant(), Foreground = Theme.Background, FontSize = 15, FontWeight = FontWeights.Black },
         };

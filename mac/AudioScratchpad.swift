@@ -329,8 +329,10 @@ extension Color {
     static let appBackground = adaptive(light: hex(0xFAF7F0), dark: hex(0x14120F))
     static let appText = adaptive(light: hex(0x1A1814), dark: hex(0xF3EEE3))
     static let appControl = adaptive(light: hex(0xECE6D8), dark: hex(0x2A261F))
+    static let appMuted = adaptive(light: hex(0x6B655A), dark: hex(0xA39C8E))
     static let appRecord = adaptive(light: hex(0xE8321E), dark: hex(0xFF5A3C))
     static let highlight = Color(nsColor: hex(0xFFDF1F))
+    static let highlightShadow = Color(nsColor: hex(0xB39400))
     static let onHighlight = Color(nsColor: hex(0x1A1814))
 
     private static func hex(_ value: Int) -> NSColor {
@@ -478,14 +480,15 @@ struct RecordButtonStyle: ButtonStyle {
         return configuration.label
             .font(.archivo(14, black: true))
             .textCase(.uppercase)
-            .foregroundStyle(Color.onHighlight)
+            .foregroundStyle(isEnabled ? Color.onHighlight : Color.appMuted)
             .padding(.horizontal, 18)
             .frame(minWidth: 120, minHeight: 42)
-            .background(Color.highlight)
-            .overlay(Rectangle().strokeBorder(Color.appText, lineWidth: 2))
-            .background(Rectangle().fill(Color.appText).offset(x: pressed ? 0 : 3, y: pressed ? 0 : 3))
-            .offset(x: pressed ? 3 : 0, y: pressed ? 3 : 0)
-            .opacity(isEnabled ? 1 : 0.5)
+            .background(isEnabled ? Color.highlight : Color.clear)
+            .overlay(Rectangle().strokeBorder(isEnabled ? Color.highlight : Color.appMuted,
+                                              style: StrokeStyle(lineWidth: 2, dash: isEnabled ? [] : [4, 3])))
+            .background(Rectangle().fill(Color.appBackground).padding(-2))
+            .background(Rectangle().fill(Color.highlightShadow).offset(x: pressed ? 0 : 5, y: pressed ? 0 : 5).opacity(isEnabled ? 1 : 0))
+            .offset(x: pressed ? 5 : 0, y: pressed ? 5 : 0)
     }
 }
 
@@ -555,6 +558,17 @@ struct QualityLabel: View {
     }
 }
 
+// Shows keyboard focus as a square outline in the app's text colour, in place of the Mac's blue ring.
+struct FocusRing: ViewModifier {
+    let isFocused: Bool
+
+    func body(content: Content) -> some View {
+        content
+            .focusEffectDisabled()
+            .overlay(Rectangle().strokeBorder(Color.appText, lineWidth: 2).padding(-4).opacity(isFocused ? 1 : 0))
+    }
+}
+
 struct RowSeparator: View {
     var body: some View {
         Rectangle().fill(Color.appText).frame(height: 1)
@@ -588,6 +602,7 @@ struct LiveRecordingRow: View {
                 .font(.archivo(11))
                 .monospacedDigit()
                 .frame(width: 44, alignment: .trailing)
+                .padding(.trailing, 8)
 
             Color.clear.frame(width: 104, height: 32)
         }
@@ -606,6 +621,7 @@ struct SourceButtonBounds: PreferenceKey {
 struct ContentView: View {
     @ObservedObject var model: AppModel
     @StateObject private var sourceMenu = Flag()
+    @FocusState private var focusedControl: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -613,8 +629,10 @@ struct ContentView: View {
                 .font(.archivo(15, black: true))
                 .textCase(.uppercase)
                 .foregroundStyle(Color.appBackground)
-                .padding(.horizontal, 8)
-                .padding(.vertical, 4)
+                .padding(.horizontal, 30)
+                // Archivo leaves extra room above capitals, so less padding on top centres them.
+                .padding(.top, 2.25)
+                .padding(.bottom, 5.75)
                 .background(Color.appText)
                 // Sits beside the window's close, minimise and zoom buttons, in place of the usual title.
                 .padding(.leading, 78)
@@ -740,6 +758,8 @@ struct ContentView: View {
             }
             .buttonStyle(RecordButtonStyle())
             .disabled(model.selectedSource == nil || model.isStarting || model.isStopping)
+            .modifier(FocusRing(isFocused: focusedControl == "record"))
+            .focused($focusedControl, equals: "record")
         }
     }
 
@@ -766,6 +786,8 @@ struct ContentView: View {
         .buttonStyle(.plain)
         .disabled(model.isCapturing)
         .opacity(model.isCapturing ? 0.5 : 1)
+        .modifier(FocusRing(isFocused: focusedControl == "source"))
+        .focused($focusedControl, equals: "source")
         .anchorPreference(key: SourceButtonBounds.self, value: .bounds) { $0 }
         .accessibilityLabel("Source")
         .accessibilityValue(source?.name ?? "None chosen")
@@ -832,6 +854,7 @@ struct ContentView: View {
                 .font(.archivo(11))
                 .monospacedDigit()
                 .frame(width: 44, alignment: .trailing)
+                .padding(.trailing, 8)
 
             Button { model.copyToClipboard(recording) } label: {
                 Image(systemName: model.copiedURL == recording.url ? "checkmark" : "doc.on.doc")

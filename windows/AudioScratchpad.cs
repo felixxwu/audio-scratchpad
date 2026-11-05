@@ -135,7 +135,7 @@ sealed partial class MainWindow : Window
         Padding = new Thickness(6, 2, 6, 2), VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(12, 0, 0, 0),
     };
     // 3 bigger than it looks, with its shadow hanging past the edges it lines up by.
-    readonly Button recordButton = new Button { MinWidth = 123, Height = 45, Margin = new Thickness(12, 0, -3, -3) };
+    readonly Button recordButton = new Button { MinWidth = 125, Height = 47, Margin = new Thickness(12, 0, -5, -5) };
     readonly TextBlock messageText = new TextBlock { Foreground = Theme.Text, TextWrapping = TextWrapping.Wrap };
     readonly Border messageBox = new Border { BorderBrush = Theme.Text, BorderThickness = new Thickness(2), Padding = new Thickness(12, 8, 12, 8), Margin = new Thickness(16, 12, 16, 0) };
     readonly TextBlock emptyText = new TextBlock { Text = "NO RECORDINGS YET", FontWeight = FontWeights.Black, Foreground = Theme.Text, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
@@ -420,7 +420,7 @@ sealed partial class MainWindow : Window
     static Grid NewRowGrid()
     {
         var grid = new Grid { Height = 45 };
-        foreach (double width in new double[] { 32, -1, 120, 48, 32, 32, 32 })
+        foreach (double width in new double[] { 32, -1, 120, 58, 32, 32, 32 })
             grid.ColumnDefinitions.Add(new ColumnDefinition { Width = width < 0 ? new GridLength(1, GridUnitType.Star) : new GridLength(width) });
         return grid;
     }
@@ -439,7 +439,7 @@ sealed partial class MainWindow : Window
         var text = new TextBlock
         {
             FontSize = 11, VerticalAlignment = VerticalAlignment.Center,
-            HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 0, 4, 0),
+            HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 0, 14, 0),
         };
         Grid.SetColumn(text, 3);
         grid.Children.Add(text);
@@ -762,8 +762,13 @@ sealed partial class MainWindow : Window
         else
         {
             var ring = new Grid { Width = 14, Height = 14 };
-            ring.Children.Add(new Ellipse { Stroke = Theme.OnHighlight, StrokeThickness = 2 });
-            ring.Children.Add(new Ellipse { Fill = Theme.OnHighlight, Width = 6, Height = 6 });
+            var outer = new Ellipse { StrokeThickness = 2 };
+            var dot = new Ellipse { Width = 6, Height = 6 };
+            var foreground = new Binding("Foreground") { RelativeSource = new RelativeSource(RelativeSourceMode.FindAncestor, typeof(Control), 1) };
+            outer.SetBinding(Shape.StrokeProperty, foreground);
+            dot.SetBinding(Shape.FillProperty, foreground);
+            ring.Children.Add(outer);
+            ring.Children.Add(dot);
             icon = ring;
         }
         icon.VerticalAlignment = VerticalAlignment.Center;

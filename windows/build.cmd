@@ -23,7 +23,7 @@ for /f "delims=-+" %%a in ("%version%") do set "version=%%a"
 ..\build\self-check.exe || exit /b 1
 
 rem The quality check, shared with the web version, and the app's font are built into the exe.
-"%fw%\csc.exe" /nologo /optimize /target:winexe "/out:..\build\Audio Scratchpad.exe" ^
+"%fw%\csc.exe" /nologo /optimize /target:winexe "/out:..\build\Audio Scratchpad.exe" /win32icon:..\logo\app.ico ^
   "/r:%wpf%\PresentationCore.dll" "/r:%wpf%\PresentationFramework.dll" "/r:%wpf%\WindowsBase.dll" ^
   "/r:%fw%\System.Xaml.dll" /r:System.Drawing.dll /r:Microsoft.VisualBasic.dll ^
   /resource:..\web\audio-quality.js,audio-quality.js ^

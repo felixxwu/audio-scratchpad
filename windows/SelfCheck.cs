@@ -133,9 +133,59 @@ static class SelfCheck
         Require(refused && new FileInfo(path).Length == 44 + 16, "should never overwrite an existing recording");
     }
 
+    // Runs real recordings through the shared quality check, to catch mistakes in handing audio to JavaScript. The check's
+    // own judgement is tested against real music in quality/.
+    static void CheckQuality(string path)
+    {
+        string script = Quality.LoadScript(Path.Combine("..", "web", "audio-quality.js"));
+        ulong seed = 1;
+        Func<double> random = () =>
+        {
+            seed = (seed * 1103515245 + 12345) % 2147483648;
+            return seed / 2147483648.0;
+        };
+        Func<float[], QualityReport> check = values =>
+        {
+            File.Delete(path);
+            using (var recording = new RecordingFile(path)) recording.Append(0, Stereo(values));
+            return Quality.Check(path, script);
+        };
+
+        // A minute of 16-bit noise, the same in both channels, is long enough to be read in parts.
+        var noise = new float[48000 * 60];
+        for (int i = 0; i < noise.Length; i++) noise[i] = (float)(Math.Round((random() - 0.5) * 16384) / 32768);
+        QualityReport clean;
+        try { clean = check(noise); }
+        catch (DllNotFoundException)
+        {
+            Console.WriteLine("Skipped the quality check: this machine has no chakra.dll");
+            return;
+        }
+        Require(clean.Verdict == "lossless" && clean.Label == "Lossless", "noise should be lossless, got " + clean.Summary);
+        Require(clean.Summary.Contains("16-bit"), "samples should reach the check unchanged, got " + clean.Summary);
+        Require(clean.Summary.Contains("really mono"), "channels should reach the check in order, got " + clean.Summary);
+
+        // A thousand tones below 16 kHz and nothing above, the way a 128 kbps MP3 cuts off.
+        var tones = new float[48000 * 5];
+        for (int tone = 0; tone < 1000; tone++)
+        {
+            double step = 2 * Math.PI * (100 + random() * 15900) / 48000, phase = random() * 2 * Math.PI;
+            double turnRe = Math.Cos(step), turnIm = Math.Sin(step), re = Math.Cos(phase), im = Math.Sin(phase);
+            for (int i = 0; i < tones.Length; i++)
+            {
+                tones[i] += (float)(0.002 * re);
+                double next = re * turnRe - im * turnIm;
+                im = re * turnIm + im * turnRe;
+                re = next;
+            }
+        }
+        var lossy = check(tones);
+        Require(lossy.Verdict == "lossy" && lossy.Label == "Lossy", "a 16 kHz cutoff should look lossy, got " + lossy.Summary);
+    }
+
     static void Main()
     {
-        foreach (Action<string> check in new Action<string>[] { CheckRecordingFile, CheckWaveform, CheckUnknownFirstTime, CheckForeignWav, CheckSizeLimit })
+        foreach (Action<string> check in new Action<string>[] { CheckRecordingFile, CheckWaveform, CheckUnknownFirstTime, CheckForeignWav, CheckSizeLimit, CheckQuality })
         {
             string path = Path.Combine(Path.GetTempPath(), "recording-check-" + Guid.NewGuid() + ".wav");
             try { check(path); }

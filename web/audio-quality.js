@@ -6,7 +6,12 @@
 //
 //   const report = AudioQuality.analyze([leftFloat32Array, rightFloat32Array], 48000);
 //   report.verdict   // "lossless", "lossy", "upsampled" or "silent"
+//   report.label     // a word or two for a list row, such as "Lossy" or "22.05 kHz"
 //   report.summary   // a sentence describing what was found
+//
+// Long recordings don't need to be read whole. excerptRanges(frames, sampleRate) says which parts of a file to read
+// (about 36 seconds in all, spread through it), and analyzeExcerpts takes those parts back to back as interleaved
+// samples. That form also suits native apps, which can hand over a single Float32Array from a file.
 //
 // Everything is an estimate from traces the source left in the audio. A file can be shown to be worse than it claims,
 // but never proven to be as good as it claims.
@@ -34,38 +39,72 @@
   // Common sample rates. A cutoff just below half of one of these suggests the audio was recorded or saved at that rate.
   var SAMPLE_RATES = [8000, 11025, 16000, 22050, 24000, 32000, 44100, 48000, 88200, 96000, 176400, 192000];
 
-  var MAX_FRAMES = 1500; // spread over the whole file, so long files take no longer than about 70 seconds of audio would
+  var MAX_FRAMES = 1500; // spread over all the audio given, so long files take no longer than about 70 seconds would
   var SILENT_DB = -70; // frames quieter than this (RMS, dBFS) are skipped
+  var EXCERPT_SECONDS = 1.5;
+  var EXCERPT_COUNT = 24;
 
   // Share of high-frequency bins that are holes. Lossless and resampled music measured 0-0.6%; MP3 and Vorbis 1-30%.
   var HOLES_AT_STANDARD_CUTOFF = 0.008;
   var HOLES_WITHOUT_CUTOFF = 0.012;
 
+  // `channels` holds one Float32Array per channel.
   function analyze(channels, sampleRate) {
     if (!channels || !channels.length) throw new Error("No audio channels given");
-    if (!(sampleRate > 0)) throw new Error("Sample rate must be a positive number");
-    var length = channels[0].length;
     for (var c = 1; c < channels.length; c++) {
-      if (channels[c].length !== length) throw new Error("All channels must have the same length");
+      if (channels[c].length !== channels[0].length) throw new Error("All channels must have the same length");
     }
+    return analyzeParts([channels], channels.length, sampleRate);
+  }
 
+  // The parts of a recording `frames` long that analyzeExcerpts needs, as [start, length, start, length, ...] in frames.
+  function excerptRanges(frames, sampleRate) {
+    var length = Math.round(EXCERPT_SECONDS * sampleRate);
+    if (frames <= length * EXCERPT_COUNT) return [0, frames];
+    var ranges = [];
+    for (var i = 0; i < EXCERPT_COUNT; i++) {
+      ranges.push(Math.floor((i * (frames - length)) / (EXCERPT_COUNT - 1)), length);
+    }
+    return ranges;
+  }
+
+  // `samples` holds the parts named by `ranges` back to back, each as interleaved frames.
+  function analyzeExcerpts(samples, channelCount, sampleRate, ranges) {
+    if (!(channelCount > 0)) throw new Error("Channel count must be a positive number");
+    var parts = [];
+    var offset = 0;
+    for (var r = 1; r < ranges.length; r += 2) {
+      var frames = Math.min(ranges[r], Math.floor((samples.length - offset) / channelCount));
+      var channels = [];
+      for (var c = 0; c < channelCount; c++) channels.push(new Float32Array(frames));
+      for (var f = 0; f < frames; f++) {
+        for (c = 0; c < channelCount; c++) channels[c][f] = samples[offset + f * channelCount + c];
+      }
+      parts.push(channels);
+      offset += frames * channelCount;
+    }
+    return analyzeParts(parts, channelCount, sampleRate);
+  }
+
+  function analyzeParts(parts, channelCount, sampleRate) {
+    if (!(sampleRate > 0)) throw new Error("Sample rate must be a positive number");
     var report = {
       sampleRate: sampleRate,
-      channels: channels.length,
-      durationSeconds: length / sampleRate,
+      channels: channelCount,
       verdict: "lossless",
+      label: "",
       summary: "",
       bandwidth: null,
       lossy: null,
       sourceSampleRate: null,
-      bitDepth: measureBitDepth(channels),
-      stereo: measureStereo(channels),
+      bitDepth: measureBitDepth(parts),
+      stereo: measureStereo(parts),
     };
 
-    var spectra = measureSpectra(channels, sampleRate);
+    var spectra = measureSpectra(parts, sampleRate);
     if (!spectra) {
       report.verdict = "silent";
-      report.summary = "The recording is silent or too short to analyse.";
+      report.summary = "The recording is too quiet or too short to judge its quality.";
       return report;
     }
 
@@ -95,6 +134,9 @@
       lossy.bitrate = cutoff.brickWall ? guessBitrate(cutoff.hz) : null; // no cutoff to judge it by
     }
 
+    report.label = report.verdict === "lossy" ? "Lossy"
+      : report.verdict === "upsampled" ? report.sourceSampleRate / 1000 + " kHz"
+      : "Lossless";
     report.summary = describe(report);
     return report;
   }
@@ -105,10 +147,11 @@
   // Returns short-time power spectra (in dB) of the mono mix at evenly spaced points through the file. Two sizes are
   // measured: long frames for an accurate frequency picture, and short ones (about the length of a lossy codec's own
   // frames) to see the holes that lossy coding leaves.
-  function measureSpectra(channels, sampleRate) {
-    var length = channels[0].length;
+  function measureSpectra(parts, sampleRate) {
     var size = nextPowerOfTwo(sampleRate * 0.04); // 2048 at 48 kHz, about 23 Hz per bin
     var shortSize = nextPowerOfTwo(sampleRate * 0.01); // 512 at 48 kHz
+    var length = 0;
+    for (var p = 0; p < parts.length; p++) length += parts[p][0].length;
     if (length < size) return null;
 
     var hop = Math.max(size / 2, Math.floor((length - size) / MAX_FRAMES));
@@ -125,12 +168,31 @@
     var sim = new Float64Array(shortSize);
     var frames = [];
     var shortFrames = [];
-    var scale = 1 / channels.length;
+    var scale = 1 / parts[0].length;
     var windowGain = sum(window) / 2;
     var shortGain = sum(shortWindow) / 2;
     var silent = Math.pow(10, SILENT_DB / 20);
 
-    for (var start = 0; start + size <= length; start += hop) {
+    // Frames never straddle two parts, because the jump between them would sound like a click across every frequency.
+    for (p = 0; p < parts.length; p++) {
+      var channels = parts[p];
+      for (var start = 0; start + size <= channels[0].length; start += hop) {
+        measureFrame(channels, start);
+      }
+    }
+    if (frames.length < 4) return null;
+
+    return {
+      sampleRate: sampleRate,
+      frames: frames,
+      binHz: sampleRate / size,
+      bins: bins,
+      shortFrames: shortFrames,
+      shortBinHz: sampleRate / shortSize,
+      shortBins: shortBins,
+    };
+
+    function measureFrame(channels, start) {
       var energy = 0;
       for (var i = 0; i < size; i++) {
         var v = 0;
@@ -139,7 +201,7 @@
         mono[i] = v;
         energy += v * v;
       }
-      if (Math.sqrt(energy / size) < silent) continue;
+      if (Math.sqrt(energy / size) < silent) return;
 
       for (i = 0; i < size; i++) {
         re[i] = mono[i] * window[i];
@@ -159,17 +221,6 @@
         shortFrames.push(toDb(sre, sim, shortBins, shortGain));
       }
     }
-    if (frames.length < 4) return null;
-
-    return {
-      sampleRate: sampleRate,
-      frames: frames,
-      binHz: sampleRate / size,
-      bins: bins,
-      shortFrames: shortFrames,
-      shortBinHz: sampleRate / shortSize,
-      shortBins: shortBins,
-    };
   }
 
   function toDb(re, im, bins, gain) {
@@ -321,31 +372,31 @@
 
   // Fixed-point audio stored as float keeps its grid: every 16-bit sample is a whole multiple of 1/32768. Any gain change,
   // mixing or resampling after that breaks the grid, so a missing grid says little, but a present one is certain.
-  function measureBitDepth(channels) {
+  function measureBitDepth(parts) {
     var depths = [8, 12, 16, 20, 24];
-    var limit = 2000000;
-    var nonZero = 0;
-    var fits = depths.map(function () {
-      return true;
+    var scales = depths.map(function (bits) {
+      return Math.pow(2, bits - 1);
     });
-    for (var c = 0; c < channels.length; c++) {
-      var data = channels[c];
-      var step = Math.max(1, Math.floor(data.length / limit));
-      for (var i = 0; i < data.length; i += step) {
-        var x = data[i];
+    var fits = depths.length; // the grids from depths[depths.length - fits] up still hold
+    var nonZero = 0;
+    eachSample(parts, function (channels, i) {
+      for (var c = 0; c < channels.length; c++) {
+        var x = channels[c][i];
         if (x === 0) continue;
         nonZero++;
-        for (var d = 0; d < depths.length; d++) {
-          if (fits[d]) {
-            var scaled = x * Math.pow(2, depths[d] - 1);
-            if (scaled !== Math.round(scaled)) fits[d] = false;
-          }
+        // A sample on a coarse grid is on every finer one too, so only the coarsest remaining grid can fail.
+        while (fits > 0) {
+          var scaled = x * scales[depths.length - fits];
+          if (scaled === Math.round(scaled)) break;
+          fits--;
         }
       }
-    }
+      return fits === 0; // nothing left to find
+    });
     if (nonZero < 1000) return { bits: null, note: "Too few non-zero samples to tell." };
-    for (d = 0; d < depths.length; d++) {
-      if (fits[d]) return { bits: depths[d], note: "Every sample is a whole " + depths[d] + "-bit value." };
+    if (fits > 0) {
+      var bits = depths[depths.length - fits];
+      return { bits: bits, note: "Every sample is a whole " + bits + "-bit value." };
     }
     return {
       bits: null,
@@ -353,23 +404,35 @@
     };
   }
 
-  function measureStereo(channels) {
-    if (channels.length < 2) return { identical: false, correlation: null };
-    var l = channels[0];
-    var r = channels[1];
-    var step = Math.max(1, Math.floor(l.length / 2000000));
+  function measureStereo(parts) {
+    if (parts[0].length < 2) return { identical: false, correlation: null };
     var ll = 0;
     var rr = 0;
     var lr = 0;
     var identical = true;
-    for (var i = 0; i < l.length; i += step) {
-      ll += l[i] * l[i];
-      rr += r[i] * r[i];
-      lr += l[i] * r[i];
-      if (identical && Math.abs(l[i] - r[i]) > 1e-6) identical = false;
-    }
+    eachSample(parts, function (channels, i) {
+      var l = channels[0][i];
+      var r = channels[1][i];
+      ll += l * l;
+      rr += r * r;
+      lr += l * r;
+      if (identical && Math.abs(l - r) > 1e-6) identical = false;
+    });
     var correlation = ll > 0 && rr > 0 ? lr / Math.sqrt(ll * rr) : null;
     return { identical: identical, correlation: correlation === null ? null : round3(correlation) };
+  }
+
+  // Visits up to about 2 million frames, spread evenly over all the parts, until `visit` returns true.
+  function eachSample(parts, visit) {
+    var total = 0;
+    for (var p = 0; p < parts.length; p++) total += parts[p][0].length;
+    var step = Math.max(1, Math.floor(total / 2000000));
+    for (p = 0; p < parts.length; p++) {
+      var channels = parts[p];
+      for (var i = 0; i < channels[0].length; i += step) {
+        if (visit(channels, i)) return;
+      }
+    }
   }
 
   // ---------------------------------------------------------------------------------------------------------------
@@ -510,5 +573,5 @@
     return Math.round(x * 1000) / 1000;
   }
 
-  return { analyze: analyze };
+  return { analyze: analyze, excerptRanges: excerptRanges, analyzeExcerpts: analyzeExcerpts };
 });

@@ -1,20 +1,35 @@
 # Audio quality check
 
-`audio-quality.js` looks at a recording and estimates its real quality. It reports whether the audio came from a lossy
+`web/audio-quality.js` looks at a recording and estimates its real quality. It reports whether the audio came from a lossy
 file (MP3, AAC, Vorbis, Opus) and at roughly what bitrate, whether it was upsampled from a lower sample rate, and how
 many bits of each sample are real. It still works after the audio has been converted to 32-bit float at 48 kHz, as
 Audio Scratchpad records it.
 
-It's a single file of plain JavaScript with no dependencies, so the same code can run in the browser version, in Node,
-and inside the Mac and Windows apps through an embedded JavaScript engine.
+It's a single file of plain JavaScript with no dependencies, and all three versions of the app use it to label each
+recording:
+
+- **Web:** the browser version runs the file in a worker. It lives in `web/` so that the site serves it.
+- **Mac:** the app runs the file in JavaScriptCore, which comes with macOS (`mac/Quality.swift`). `mac/build.sh` copies
+  it into the app.
+- **Windows:** the app runs the file in Chakra, the JavaScript engine built into Windows 10 and 11
+  (`windows/Quality.cs`). `windows/build.cmd` builds it into the exe.
+
+Each app's self-check runs two made-up recordings through its own copy, which catches mistakes in how audio is passed to
+the script.
 
 ```js
-// Browser: <script src="audio-quality.js"></script> defines AudioQuality.
-// Node: const AudioQuality = require("./audio-quality.js");
+// Browser: <script src="audio-quality.js"></script> (or importScripts in a worker) defines AudioQuality.
+// Node: const AudioQuality = require("./web/audio-quality.js");
 const report = AudioQuality.analyze([audioBuffer.getChannelData(0), audioBuffer.getChannelData(1)], audioBuffer.sampleRate);
 report.verdict; // "lossless", "lossy", "upsampled" or "silent"
+report.label; // "Lossless", "Lossy" or the source sample rate, e.g. "22.05 kHz"
 report.summary; // e.g. "Likely from a lossy file at about 96-160 kbps: it cuts off sharply at 16.1 kHz, ..."
 ```
+
+Long recordings don't need to be read whole. `excerptRanges(frames, sampleRate)` lists which parts to read: 24 parts of
+1.5 seconds, spread through the file, or the whole file if it's shorter than that. `analyzeExcerpts(samples, channels,
+sampleRate, ranges)` takes those parts back to back as one interleaved `Float32Array`. On real recordings it gave the
+same verdicts as reading the whole file, and takes about a second however long the recording is.
 
 The report also includes the measurements behind the verdict: `bandwidth` (cutoff frequency and whether it's a brick
 wall), `lossy` (hole share, reason, bitrate range), `sourceSampleRate`, `bitDepth` and `stereo`.

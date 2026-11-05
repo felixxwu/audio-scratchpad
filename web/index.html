@@ -63,7 +63,7 @@
   #list { margin: 0; padding: 0; list-style: none; }
   #list li {
     display: grid;
-    grid-template-columns: 32px minmax(0, 1fr) 44px 32px 32px;
+    grid-template-columns: 32px minmax(0, 1fr) 64px 44px 32px 32px;
     align-items: center;
     gap: 4px;
     padding: 6px 0;
@@ -73,6 +73,7 @@
   #list canvas { display: block; width: 100%; height: 28px; cursor: pointer; touch-action: none; }
   #list li.live canvas { cursor: default; }
   .time { color: var(--muted); font-variant-numeric: tabular-nums; text-align: right; }
+  .quality { overflow: hidden; color: var(--muted); font-size: 12px; text-align: right; text-overflow: ellipsis; white-space: nowrap; }
   .icon {
     display: inline-flex;
     align-items: center;
@@ -239,6 +240,40 @@
   };
 </script>
 
+<script type="text/plain" id="quality-code">
+  // Judges recordings' real quality with the shared audio-quality.js, one at a time, reading only the parts it needs.
+  const headerSize = 44;
+  const channels = 2;
+  const sampleRate = 48000;
+
+  async function check(file) {
+    const frames = Math.floor((file.size - headerSize) / (channels * 4));
+    const ranges = AudioQuality.excerptRanges(frames, sampleRate);
+    const parts = [];
+    for (let i = 0; i < ranges.length; i += 2) {
+      const start = headerSize + ranges[i] * channels * 4;
+      const bytes = await file.slice(start, start + ranges[i + 1] * channels * 4).arrayBuffer();
+      parts.push(new Float32Array(bytes, 0, bytes.byteLength >> 2));
+    }
+    const samples = new Float32Array(parts.reduce((total, part) => total + part.length, 0));
+    parts.reduce((offset, part) => (samples.set(part, offset), offset + part.length), 0);
+    return AudioQuality.analyzeExcerpts(samples, channels, sampleRate, ranges);
+  }
+
+  let queue = Promise.resolve();
+  onmessage = ({ data }) => {
+    queue = queue.then(async () => {
+      try {
+        if (!self.AudioQuality) importScripts(data.scriptUrl);
+        const { verdict, label, summary } = await check(data.file);
+        postMessage({ id: data.id, verdict, label, summary });
+      } catch (error) {
+        postMessage({ id: data.id, verdict: 'unknown', label: '', summary: `The quality check failed: ${error.message}` });
+      }
+    });
+  };
+</script>
+
 <script>
 const SAMPLE_RATE = 48000;
 const HEADER_SIZE = 44;
@@ -249,6 +284,7 @@ const scriptUrl = (id) =>
   URL.createObjectURL(new Blob([document.getElementById(id).textContent], { type: 'text/javascript' }));
 const tapUrl = scriptUrl('tap-code');
 const writerUrl = scriptUrl('writer-code');
+const qualityUrl = scriptUrl('quality-code');
 
 const icons = {
   record: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4" fill="currentColor"/></svg>',
@@ -306,6 +342,25 @@ async function waveformPeaks(file, bars = BARS) {
     }
   }
   return fitWaveform(peaks, bars);
+}
+
+// Judges whether a recording is lossless, lossy or upsampled, using audio-quality.js (shared with the Mac and Windows apps).
+let qualityWorker = null;
+const qualityJobs = new Map();
+let qualityJobCount = 0;
+function checkQuality(file) {
+  if (!qualityWorker) {
+    qualityWorker = new Worker(qualityUrl);
+    qualityWorker.onmessage = ({ data }) => {
+      qualityJobs.get(data.id)(data);
+      qualityJobs.delete(data.id);
+    };
+  }
+  const id = qualityJobCount++;
+  return new Promise((resolve) => {
+    qualityJobs.set(id, resolve);
+    qualityWorker.postMessage({ id, file, scriptUrl: new URL('audio-quality.js', location.href).href });
+  });
 }
 
 // Connects a sound source to the file writer. The audio thread talks to the writer directly, so a busy page can't delay it.
@@ -432,6 +487,7 @@ function runApp() {
     row.element.innerHTML = `
       <button class="icon play" type="button" aria-label="Play">${icons.play}</button>
       <canvas role="img"></canvas>
+      <span class="quality"></span>
       <span class="time">${formatTime(Math.round(row.duration))}</span>
       <a class="icon" draggable="true" aria-label="Download" title="Click to download, or drag into another app">${icons.download}</a>
       <button class="icon delete" type="button" aria-label="Delete" title="Delete">${icons.trash}</button>`;
@@ -464,6 +520,13 @@ function runApp() {
       row.peaks = peaks;
       drawWaveform(row.canvas, peaks, playing?.row === row ? playhead() : undefined);
     }).catch(() => {});
+    checkQuality(file).then(({ label, summary }) => {
+      const quality = row.element.querySelector('.quality');
+      quality.textContent = label;
+      // Hovering shows the reasons, and screen readers read them out with the label.
+      quality.title = summary;
+      quality.setAttribute('aria-label', label ? `Quality: ${label}. ${summary}` : '');
+    });
     return row;
   }
 
@@ -605,7 +668,7 @@ function runApp() {
     row.element.innerHTML = `
       <span class="icon dot" role="img" aria-label="Recording">${icons.dot}</span>
       <canvas role="img" aria-label="Waveform of the recording in progress"></canvas>
-      <span class="time"></span><span></span><span></span>`;
+      <span></span><span class="time"></span><span></span><span></span>`;
     row.canvas = row.element.querySelector('canvas');
     return row;
   }
@@ -782,6 +845,36 @@ async function runSelfCheck() {
   check(peaks.slice(50).every((p) => p === 1), 'loud half should fill the height');
   check(String(fitWaveform([0.25, 0.5])) === '0.5,1', 'short input keeps every value');
   check(String(fitWaveform([0, 0, 0.5, 0.25], 2)) === '0,1', "long input keeps each group's loudest");
+
+  // Runs recordings through the shared quality check, to catch mistakes in handing audio over. The check's own
+  // judgement is tested against real music in quality/.
+  let seed = 1;
+  const random = () => (seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648;
+  const wav = (mono) => {
+    const stereo = new Float32Array(mono.length * 2);
+    mono.forEach((value, i) => { stereo[i * 2] = value; stereo[i * 2 + 1] = value; });
+    return new File([new ArrayBuffer(HEADER_SIZE), stereo], 'quality.wav');
+  };
+  // A minute of 16-bit noise, the same in both channels, is long enough to be read in parts.
+  const noise = new Float32Array(SAMPLE_RATE * 60).map(() => Math.round((random() - 0.5) * 16384) / 32768);
+  const clean = await checkQuality(wav(noise));
+  check(clean.verdict === 'lossless' && clean.label === 'Lossless', `noise should be lossless, got ${clean.summary}`);
+  check(clean.summary.includes('16-bit'), `samples should reach the check unchanged, got ${clean.summary}`);
+  check(clean.summary.includes('really mono'), `channels should reach the check in order, got ${clean.summary}`);
+  // A thousand tones below 16 kHz and nothing above, the way a 128 kbps MP3 cuts off.
+  const tones = new Float32Array(SAMPLE_RATE * 5);
+  for (let tone = 0; tone < 1000; tone++) {
+    const step = (2 * Math.PI * (100 + random() * 15900)) / SAMPLE_RATE;
+    const phase = random() * 2 * Math.PI;
+    const [turnRe, turnIm] = [Math.cos(step), Math.sin(step)];
+    let [re, im] = [Math.cos(phase), Math.sin(phase)];
+    for (let i = 0; i < tones.length; i++) {
+      tones[i] += 0.002 * re;
+      [re, im] = [re * turnRe - im * turnIm, re * turnIm + im * turnRe];
+    }
+  }
+  const lossy = await checkQuality(wav(tones));
+  check(lossy.verdict === 'lossy' && lossy.label === 'Lossy', `a 16 kHz cutoff should look lossy, got ${lossy.summary}`);
 
   const history = new LoudnessHistory();
   for (let i = 0; i < 5000; i++) history.append(i === 1234 ? 1 : 0.1);

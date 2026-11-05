@@ -10,14 +10,16 @@ version="${version%%[-+]*}"
 
 app="../build/Audio Scratchpad.app"
 rm -rf ../build
-mkdir -p "$app/Contents/MacOS"
+mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
 
 swiftc=(/usr/bin/xcrun --sdk macosx swiftc -O -parse-as-library -swift-version 5 -target arm64-apple-macos14.0)
 
-$swiftc Waveform.swift RecordingFile.swift SelfCheck.swift -o ../build/self-check
+$swiftc Waveform.swift RecordingFile.swift Quality.swift SelfCheck.swift -o ../build/self-check
 ../build/self-check
 
-$swiftc AudioScratchpad.swift Recorder.swift Waveform.swift RecordingFile.swift -o "$app/Contents/MacOS/Audio Scratchpad"
+$swiftc AudioScratchpad.swift Recorder.swift Waveform.swift RecordingFile.swift Quality.swift -o "$app/Contents/MacOS/Audio Scratchpad"
+# The quality check is shared with the web version, which serves the same file.
+cp ../web/audio-quality.js "$app/Contents/Resources/"
 
 cat > "$app/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>

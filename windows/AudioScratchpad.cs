@@ -101,6 +101,7 @@ sealed class Row
 {
     public Grid Root;
     public Button Play, Copy;
+    public TextBlock Quality;
     public Border Separator;
     public WaveformView Wave;
     public double Duration;
@@ -122,6 +123,10 @@ sealed partial class MainWindow : Window
 
     readonly Dictionary<string, Row> rows = new Dictionary<string, Row>();
     readonly Dictionary<string, float[]> waveforms = new Dictionary<string, float[]>();
+    readonly Dictionary<string, QualityReport> qualities = new Dictionary<string, QualityReport>();
+    // Checked one at a time, because each check reads up to 36 seconds of audio.
+    Task qualityQueue = Task.FromResult(0);
+    string qualityScript;
     string listedFiles;
     Dictionary<int, AudioSource> knownSources = new Dictionary<int, AudioSource>();
 
@@ -314,6 +319,7 @@ sealed partial class MainWindow : Window
             rows[path] = row;
             list.Children.Add(row.Root);
             LoadWaveform(path, row);
+            LoadQuality(path, row);
         }
         if (files.Count > 0) rows[files.Last()].Separator.Visibility = Visibility.Collapsed;
         UpdateControls();
@@ -332,10 +338,41 @@ sealed partial class MainWindow : Window
         row.Wave.Peaks = peaks;
     }
 
+    async void LoadQuality(string path, Row row)
+    {
+        QualityReport report;
+        if (!qualities.TryGetValue(path, out report))
+        {
+            var check = qualityQueue.ContinueWith(_ =>
+            {
+                try
+                {
+                    if (qualityScript == null) qualityScript = Quality.LoadScript();
+                    return Quality.Check(path, qualityScript);
+                }
+                catch (DllNotFoundException)
+                {
+                    return new QualityReport { Label = "", Summary = "This version of Windows can't run the quality check." };
+                }
+                catch (Exception error)
+                {
+                    return new QualityReport { Label = "", Summary = error.Message };
+                }
+            }, TaskScheduler.Default);
+            qualityQueue = check;
+            report = await check;
+            qualities[path] = report;
+        }
+        row.Quality.Text = report.Label;
+        row.Quality.ToolTip = string.IsNullOrEmpty(report.Summary) ? null : report.Summary;
+        AutomationProperties.SetName(row.Quality, report.Label == "" ? "" : "Quality: " + report.Label + ". " + report.Summary);
+    }
+
+    // Columns: play, waveform, quality, time, then the copy, folder and trash buttons.
     static Grid NewRowGrid()
     {
         var grid = new Grid { Height = 36 };
-        foreach (double width in new double[] { 25, -1, 40, 24, 24, 24 })
+        foreach (double width in new double[] { 25, -1, 58, 40, 24, 24, 24 })
             grid.ColumnDefinitions.Add(new ColumnDefinition { Width = width < 0 ? new GridLength(1, GridUnitType.Star) : new GridLength(width) });
         return grid;
     }
@@ -356,6 +393,20 @@ sealed partial class MainWindow : Window
             Foreground = Theme.Secondary, VerticalAlignment = VerticalAlignment.Center,
             HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 0, 4, 0),
         };
+        Grid.SetColumn(text, 3);
+        grid.Children.Add(text);
+        return text;
+    }
+
+    // Whether the recording is lossless, lossy or upsampled, with the reasons on hover.
+    static TextBlock QualityText(Grid grid)
+    {
+        var text = new TextBlock
+        {
+            Foreground = Theme.Secondary, FontSize = 11.5, VerticalAlignment = VerticalAlignment.Center,
+            HorizontalAlignment = HorizontalAlignment.Right, TextTrimming = TextTrimming.CharacterEllipsis,
+            Background = Brushes.Transparent, // so the whole column shows the reasons on hover
+        };
         Grid.SetColumn(text, 2);
         grid.Children.Add(text);
         return text;
@@ -365,7 +416,7 @@ sealed partial class MainWindow : Window
     static Border RowSeparator(Grid grid)
     {
         var line = new Border { Height = 1, Background = Theme.Line, VerticalAlignment = VerticalAlignment.Bottom, Margin = new Thickness(8, 0, 4, 0) };
-        Grid.SetColumn(line, 2);
+        Grid.SetColumn(line, 3);
         Grid.SetColumnSpan(line, 4);
         grid.Children.Add(line);
         return line;
@@ -419,10 +470,11 @@ sealed partial class MainWindow : Window
         row.Wave.OnSeek = fraction => Seek(path, fraction);
         AutomationProperties.SetName(row.Wave, name);
 
+        row.Quality = QualityText(grid);
         TimeText(grid).Text = FormatTime(row.Duration);
         row.Separator = RowSeparator(grid);
 
-        row.Copy = IconButton(Theme.Copy, false, "Click to copy, or drag into another app", 3, grid);
+        row.Copy = IconButton(Theme.Copy, false, "Click to copy, or drag into another app", 4, grid);
         row.Copy.Click += (s, e) => CopyToClipboard(path);
         Point? pressed = null;
         row.Copy.PreviewMouseLeftButtonDown += (s, e) => pressed = e.GetPosition(row.Copy);
@@ -439,9 +491,9 @@ sealed partial class MainWindow : Window
             DragDrop.DoDragDrop(row.Copy, new DataObject(DataFormats.FileDrop, new[] { path }), DragDropEffects.Copy);
         };
 
-        IconButton(Theme.Folder, false, "Show in File Explorer", 4, grid).Click +=
+        IconButton(Theme.Folder, false, "Show in File Explorer", 5, grid).Click +=
             (s, e) => Process.Start("explorer.exe", "/select,\"" + path + "\"");
-        IconButton(Theme.Trash, false, "Move to Recycle Bin", 5, grid).Click += (s, e) => MoveToTrash(path);
+        IconButton(Theme.Trash, false, "Move to Recycle Bin", 6, grid).Click += (s, e) => MoveToTrash(path);
         return row;
     }
 
@@ -591,6 +643,7 @@ sealed partial class MainWindow : Window
         {
             FileSystem.DeleteFile(path, UIOption.OnlyErrorDialogs, RecycleOption.SendToRecycleBin);
             waveforms.Remove(path);
+            qualities.Remove(path);
         }
         catch (Exception error)
         {

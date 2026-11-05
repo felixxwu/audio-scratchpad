@@ -5,81 +5,121 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Audio Scratchpad</title>
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><circle cx='8' cy='8' r='6' fill='%23c7e3ff'/></svg>">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><rect x='2' y='2' width='12' height='12' fill='%23ffdf1f' stroke='%231a1814' stroke-width='2'/></svg>">
 <style>
+  @font-face { font-family: 'Archivo'; font-stretch: 125%; font-weight: 400; font-display: swap; src: url(archivo-wide.woff2) format('woff2'); }
+  @font-face { font-family: 'Archivo'; font-stretch: 125%; font-weight: 900; font-display: swap; src: url(archivo-wide-black.woff2) format('woff2'); }
   :root {
     color-scheme: light dark;
-    --bg: #f5f5f4;
-    --text: #1d1d1b;
-    --muted: #6b6b68;
-    --line: #d9d9d6;
-    --control: #e7e7e4;
-    --accent: #2b6cb0;
-    --record: #d12f2f;
-    --chevron: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'><path d='M2 4l4 4 4-4' fill='none' stroke='%231d1d1b' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/></svg>");
+    --bg: #faf7f0;
+    --text: #1a1814;
+    --muted: #6b655a;
+    --line: #1a1814;
+    --control: #ece6d8;
+    --accent: #1a1814;
+    --highlight: #ffdf1f;
+    --on-highlight: #1a1814;
+    --record: #e8321e;
+    --chevron: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'><path d='M2 4l4 4 4-4' fill='none' stroke='%231a1814' stroke-width='2.4' stroke-linecap='square'/></svg>");
   }
   @media (prefers-color-scheme: dark) {
     :root {
-      --bg: #2a2826;
-      --text: #f2f1ef;
-      --muted: #a5a29d;
-      --line: #454340;
-      --control: #3a3835;
-      --accent: #c7e3ff;
-      --record: #ff6b5e;
-      --chevron: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'><path d='M2 4l4 4 4-4' fill='none' stroke='%23f2f1ef' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/></svg>");
+      --bg: #14120f;
+      --text: #f3eee3;
+      --muted: #a39c8e;
+      --line: #f3eee3;
+      --control: #2a261f;
+      --accent: #f3eee3;
+      --record: #ff5a3c;
+      --chevron: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'><path d='M2 4l4 4 4-4' fill='none' stroke='%23f3eee3' stroke-width='2.4' stroke-linecap='square'/></svg>");
     }
   }
   * { box-sizing: border-box; }
   body {
     margin: 0 auto;
     padding: 16px;
-    max-width: 640px;
+    max-width: 680px;
     background: var(--bg);
     color: var(--text);
-    font: 15px/1.4 system-ui, sans-serif;
+    font: expanded 14px/1.4 'Archivo', system-ui, sans-serif;
   }
-  h1 { margin: 0 0 16px; font-size: 16px; font-weight: 600; color: var(--muted); }
+  h1 {
+    display: inline-block;
+    margin: 0 0 16px;
+    padding: 4px 8px;
+    background: var(--text);
+    color: var(--bg);
+    font-size: 15px;
+    font-weight: 900;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
   button, a.icon { color: var(--accent); }
   .controls { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
-  .source { flex: 1; display: flex; align-items: center; gap: 8px; min-width: 160px; color: var(--muted); }
+  .source { flex: 1; display: flex; align-items: center; gap: 8px; min-width: 160px; font-weight: 900; text-transform: uppercase; }
   #source {
     flex: 1;
     min-width: 0;
-    min-height: 40px;
+    min-height: 42px;
     padding: 0 36px 0 12px;
-    border: 0;
-    border-radius: 6px;
+    border: 1px solid var(--line);
+    border-radius: 0;
     /* Browsers don't let the built-in arrow be moved, so this draws its own. */
     appearance: none;
-    background: var(--control) var(--chevron) no-repeat right 12px center / 12px;
+    background: var(--bg) var(--chevron) no-repeat right 12px center / 12px;
     color: var(--text);
     font: inherit;
+    font-weight: 400;
+    text-transform: uppercase;
   }
   #source:disabled { opacity: 0.5; }
-  #timer { color: var(--record); font-variant-numeric: tabular-nums; }
+  /* Browsers without styleable dropdowns keep the system one. */
+  @supports (appearance: base-select) {
+    #source, #source::picker(select) { appearance: base-select; }
+    #source { display: flex; align-items: center; }
+    #source::picker-icon { display: none; }
+    #source::picker(select) {
+      margin-top: -1px;
+      padding: 0;
+      border: 1px solid var(--line);
+      background: var(--bg);
+      box-shadow: 3px 3px 0 var(--line);
+      color: var(--text);
+    }
+    #source option { padding: 10px 12px; }
+    #source option::checkmark { display: none; }
+    #source option:checked { background: var(--control); }
+    #source option:not(:disabled):hover, #source option:focus-visible { outline: 0; background: var(--highlight); color: var(--on-highlight); }
+    #source option:disabled { opacity: 0.4; }
+  }
+  #timer:not(:empty) { padding: 2px 6px; background: var(--highlight); color: var(--on-highlight); font-weight: 900; font-variant-numeric: tabular-nums; }
   #record {
     display: inline-flex;
     align-items: center;
     gap: 8px;
-    min-width: 110px;
-    min-height: 40px;
+    min-width: 120px;
+    min-height: 42px;
     padding: 0 18px;
     justify-content: center;
-    border: 0;
-    border-radius: 20px;
-    background: var(--control);
+    border: 2px solid var(--line);
+    border-radius: 0;
+    background: var(--highlight);
+    box-shadow: 3px 3px 0 var(--line);
+    color: var(--on-highlight);
     font: inherit;
+    font-weight: 900;
+    text-transform: uppercase;
     cursor: pointer;
   }
+  #record:active:not(:disabled) { transform: translate(3px, 3px); box-shadow: none; }
   #record:disabled { opacity: 0.5; cursor: default; }
-  #message { margin: 12px 0 0; color: var(--muted); }
+  #message { margin: 12px 0 0; padding: 8px 12px; border: 2px solid var(--line); }
   #message:empty { display: none; }
-  hr { margin: 16px 0 4px; border: 0; border-top: 1px solid var(--line); }
+  hr { margin: 20px 0 0; border: 0; border-top: 1px solid var(--line); }
   #list { margin: 0; padding: 0; list-style: none; }
   #list li {
     display: grid;
-    grid-template-columns: 32px minmax(0, 1fr) 92px 44px 32px 32px;
+    grid-template-columns: 32px minmax(0, 1fr) 116px 44px 32px 32px;
     align-items: center;
     gap: 4px;
     padding: 6px 0;
@@ -88,8 +128,9 @@
   #list li:last-child { border-bottom: 0; }
   #list canvas { display: block; width: 100%; height: 28px; cursor: pointer; touch-action: none; }
   #list li.live canvas { cursor: default; }
-  .time { color: var(--muted); font-variant-numeric: tabular-nums; text-align: right; }
-  .quality { position: relative; color: var(--muted); font-size: 12px; text-align: right; white-space: nowrap; }
+  .time { font-size: 11px; font-variant-numeric: tabular-nums; text-align: right; }
+  .quality { position: relative; font-size: 11px; text-align: right; text-transform: uppercase; white-space: nowrap; }
+  .quality.lost { justify-self: end; padding: 1px 4px; background: var(--highlight); color: var(--on-highlight); }
   /* Drawn here rather than with a title attribute, which browsers only show after a delay. */
   .quality[data-tooltip]:not([data-tooltip='']):hover::after {
     content: attr(data-tooltip);
@@ -98,19 +139,21 @@
     bottom: calc(100% + 4px);
     z-index: 1;
     width: max-content;
-    max-width: 220px;
-    padding: 4px 8px;
-    border: 1px solid var(--line);
-    border-radius: 6px;
-    background: var(--control);
+    max-width: 240px;
+    padding: 6px 8px;
+    border: 2px solid var(--line);
+    background: var(--bg);
+    box-shadow: 3px 3px 0 var(--line);
     color: var(--text);
+    font-weight: 400;
     text-align: left;
+    text-transform: none;
     white-space: normal;
     pointer-events: none;
   }
   /* Shown in place of the quality label until the check finishes. */
-  .loading-bar { position: relative; display: block; width: 44px; height: 3px; margin-left: auto; overflow: hidden; border-radius: 2px; background: var(--line); }
-  .loading-bar::after { content: ''; position: absolute; inset: 0; width: 40%; border-radius: inherit; background: var(--accent); animation: loading 1.2s ease-in-out infinite; }
+  .loading-bar { position: relative; display: block; width: 44px; height: 6px; margin-left: auto; overflow: hidden; border: 2px solid var(--line); }
+  .loading-bar::after { content: ''; position: absolute; inset: 0; width: 40%; background: var(--accent); animation: loading 1.2s steps(6) infinite; }
   @keyframes loading { from { transform: translateX(-100%); } to { transform: translateX(250%); } }
   @media (prefers-reduced-motion: reduce) { .loading-bar::after { width: 100%; opacity: 0.5; animation: none; } }
   .icon {
@@ -121,20 +164,20 @@
     height: 32px;
     padding: 0;
     border: 0;
-    border-radius: 6px;
+    border-radius: 0;
     background: none;
     cursor: pointer;
   }
-  .icon:hover { background: var(--control); }
+  .icon:hover { background: var(--highlight); color: var(--on-highlight); }
   a.icon { cursor: grab; }
   .dot { color: var(--record); cursor: default; }
-  .dot:hover { background: none; }
-  svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+  .dot:hover { background: none; color: var(--record); }
+  svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: square; stroke-linejoin: miter; }
   svg.solid { fill: currentColor; stroke: none; }
-  #empty { padding: 48px 0; color: var(--muted); text-align: center; }
-  footer { margin-top: 16px; color: var(--muted); font-size: 13px; }
-  footer a { color: inherit; }
-  :focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  #empty { padding: 48px 0; font-weight: 900; text-align: center; text-transform: uppercase; }
+  footer { margin-top: 24px; color: var(--muted); font-size: 12px; }
+  footer a { color: var(--text); font-weight: 900; }
+  :focus-visible { outline: 2px solid var(--text); outline-offset: 2px; }
 </style>
 </head>
 <body>
@@ -403,7 +446,9 @@ async function waveformPeaks(file, bars = BARS) {
 let qualityWorker = null;
 const qualityJobs = new Map();
 let qualityJobCount = 0;
-function checkQuality(file) {
+function checkQuality(name, file) {
+  // The check can't tell a microphone's own filter from a lossy encoder's, and the app already knows the answer.
+  if (name.startsWith('Microphone ')) return Promise.resolve({ label: 'Lossless', tooltip: 'Recorded straight from the microphone, so nothing was lost.' });
   if (!qualityWorker) {
     qualityWorker = new Worker(qualityUrl);
     qualityWorker.onmessage = ({ data }) => {
@@ -446,14 +491,19 @@ function drawWaveform(canvas, peaks, playhead) {
   if (!peaks?.length) return;
   const style = getComputedStyle(canvas);
   paint.fillStyle = style.getPropertyValue('--accent');
-  const barEdge = (i) => Math.round((i * width) / peaks.length);
-  peaks.forEach((peak, i) => {
-    const barHeight = Math.max(scale, peak * height);
-    // Whole-pixel edges, because blurred edges between bars show up as faint stripes.
-    paint.fillRect(barEdge(i), (height - barHeight) / 2, barEdge(i + 1) - barEdge(i), barHeight);
-  });
+  const pitch = 3 * scale;
+  const barWidth = Math.round(2 * scale);
+  for (let x = 0; x < width; x += pitch) {
+    const from = Math.floor((x / width) * peaks.length);
+    const to = Math.max(from + 1, Math.floor(((x + pitch) / width) * peaks.length));
+    const barHeight = Math.round(Math.max(scale, Math.max(...peaks.slice(from, to)) * height));
+    // Whole-pixel edges, because blurred edges show up as faint stripes.
+    paint.fillRect(Math.round(x), Math.round((height - barHeight) / 2), barWidth, barHeight);
+  }
   if (playhead !== undefined) {
     paint.fillStyle = style.getPropertyValue('--text');
+    paint.fillRect(width * playhead - 2 * scale, 0, 4 * scale, height);
+    paint.fillStyle = style.getPropertyValue('--highlight');
     paint.fillRect(width * playhead - scale, 0, 2 * scale, height);
   }
 }
@@ -581,9 +631,10 @@ function runApp() {
       row.peaks = peaks;
       drawWaveform(row.canvas, peaks, playing?.row === row ? playhead() : undefined);
     }).catch(() => {});
-    checkQuality(file).then(({ label, tooltip }) => {
+    checkQuality(name, file).then(({ label, tooltip }) => {
       const quality = row.element.querySelector('.quality');
       quality.textContent = label;
+      quality.classList.toggle('lost', Boolean(label) && label !== 'Lossless');
       // Hovering shows the reasons, and screen readers read them out with the label.
       quality.dataset.tooltip = tooltip;
       quality.setAttribute('aria-label', label ? `Quality: ${label}. ${tooltip}` : '');
@@ -941,7 +992,7 @@ async function runSelfCheck() {
   };
   // A minute of 16-bit noise, the same in both channels, is long enough to be read in parts.
   const noise = new Float32Array(SAMPLE_RATE * 60).map(() => Math.round((random() - 0.5) * 16384) / 32768);
-  const clean = await checkQuality(wav(noise));
+  const clean = await checkQuality('noise.wav', wav(noise));
   check(clean.verdict === 'lossless' && clean.label === 'Lossless', `noise should be lossless, got ${clean.summary}`);
   check(clean.summary.includes('16-bit'), `samples should reach the check unchanged, got ${clean.summary}`);
   check(clean.summary.includes('really mono'), `channels should reach the check in order, got ${clean.summary}`);
@@ -957,7 +1008,7 @@ async function runSelfCheck() {
       [re, im] = [re * turnRe - im * turnIm, re * turnIm + im * turnRe];
     }
   }
-  const lossy = await checkQuality(wav(tones));
+  const lossy = await checkQuality('tones.wav', wav(tones));
   check(lossy.verdict === 'lossy' && lossy.label === '96-160 kbps', `a 16 kHz cutoff should look lossy, got ${lossy.summary}`);
 
   const history = new LoudnessHistory();

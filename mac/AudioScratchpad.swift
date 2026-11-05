@@ -121,6 +121,12 @@ final class AppModel: NSObject, ObservableObject, AVAudioPlayerDelegate {
 
     func loadQuality(for url: URL) async {
         guard qualities[url] == nil else { return }
+        // The check can't tell a microphone's own filter from a lossy encoder's, and the app already knows the answer.
+        if url.lastPathComponent.hasPrefix("Microphone ") {
+            let tooltip = "Recorded straight from the microphone, so nothing was lost."
+            qualities[url] = QualityReport(verdict: "lossless", label: "Lossless", summary: tooltip, tooltip: tooltip)
+            return
+        }
         let previous = qualityQueue
         let task = Task.detached { () -> QualityReport in
             await previous?.value
@@ -318,8 +324,29 @@ final class AppModel: NSObject, ObservableObject, AVAudioPlayerDelegate {
 // Loaded on first use, which is on a background thread, so reading the script never holds up the window.
 private let sharedQualityChecker = Result { try QualityChecker() }
 
+// The app's colours, which follow the Mac's light or dark appearance like the web version does.
 extension Color {
-    static let appAccent = Color(red: 0.78, green: 0.89, blue: 1.0)
+    static let appBackground = adaptive(light: hex(0xFAF7F0), dark: hex(0x14120F))
+    static let appText = adaptive(light: hex(0x1A1814), dark: hex(0xF3EEE3))
+    static let appControl = adaptive(light: hex(0xECE6D8), dark: hex(0x2A261F))
+    static let appRecord = adaptive(light: hex(0xE8321E), dark: hex(0xFF5A3C))
+    static let highlight = Color(nsColor: hex(0xFFDF1F))
+    static let onHighlight = Color(nsColor: hex(0x1A1814))
+
+    private static func hex(_ value: Int) -> NSColor {
+        NSColor(srgbRed: CGFloat(value >> 16 & 0xFF) / 255, green: CGFloat(value >> 8 & 0xFF) / 255, blue: CGFloat(value & 0xFF) / 255, alpha: 1)
+    }
+
+    private static func adaptive(light: NSColor, dark: NSColor) -> Color {
+        Color(nsColor: NSColor(name: nil) { $0.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua ? dark : light })
+    }
+}
+
+extension Font {
+    // Archivo Expanded ships inside the app, in a regular and a black weight.
+    static func archivo(_ size: CGFloat, black: Bool = false) -> Font {
+        .custom(black ? "ArchivoExpanded-Black" : "ArchivoExpanded-Regular", size: size)
+    }
 }
 
 struct WaveformView: View {
@@ -330,19 +357,23 @@ struct WaveformView: View {
     var body: some View {
         GeometryReader { geometry in
             Canvas { context, size in
-                guard !peaks.isEmpty else { return }
-                let barWidth = size.width / CGFloat(peaks.count)
+                guard !peaks.isEmpty, size.width > 0 else { return }
+                // Bars 2 points wide with a 1 point gap, each as tall as the loudest moment it covers.
                 var path = Path()
-                for (index, peak) in peaks.enumerated() {
-                    let height = max(1, CGFloat(peak) * size.height)
-                    path.addRect(CGRect(x: CGFloat(index) * barWidth, y: (size.height - height) / 2,
-                                        width: barWidth, height: height))
+                var x: CGFloat = 0
+                while x < size.width {
+                    let from = Int(x / size.width * CGFloat(peaks.count))
+                    let to = min(peaks.count, max(from + 1, Int((x + 3) / size.width * CGFloat(peaks.count))))
+                    let height = max(1, CGFloat(peaks[from..<to].max() ?? 0) * size.height).rounded()
+                    path.addRect(CGRect(x: x, y: ((size.height - height) / 2).rounded(), width: 2, height: height))
+                    x += 3
                 }
-                context.fill(path, with: .color(.appAccent))
+                context.fill(path, with: .color(.appText))
 
                 if let playhead {
-                    let line = CGRect(x: size.width * playhead - 1, y: 0, width: 2, height: size.height)
-                    context.fill(Path(line), with: .color(.primary))
+                    let x = size.width * playhead
+                    context.fill(Path(CGRect(x: x - 2, y: 0, width: 4, height: size.height)), with: .color(.appText))
+                    context.fill(Path(CGRect(x: x - 1, y: 0, width: 2, height: size.height)), with: .color(.highlight))
                 }
             }
             .contentShape(Rectangle())
@@ -410,8 +441,73 @@ final class FileDragView: NSView, NSDraggingSource {
     }
 }
 
-final class TooltipState: ObservableObject {
-    @Published var isShowing = false
+// One on/off value for a view. An object rather than @State, which doesn't compile with only the command line tools installed.
+final class Flag: ObservableObject {
+    @Published var isOn = false
+}
+
+// Turns highlighter yellow under the pointer, like the web version's buttons and menu.
+struct HoverHighlight: ViewModifier {
+    var selected = false
+    @StateObject private var hover = Flag()
+
+    func body(content: Content) -> some View {
+        content
+            .foregroundStyle(hover.isOn ? Color.onHighlight : Color.appText)
+            .background(hover.isOn ? Color.highlight : selected ? Color.appControl : Color.clear)
+            .contentShape(Rectangle())
+            .onHover { hover.isOn = $0 }
+    }
+}
+
+struct IconButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.system(size: 14, weight: .bold))
+            .frame(width: 32, height: 32)
+            .modifier(HoverHighlight())
+    }
+}
+
+// A yellow key with a hard shadow that it presses down into.
+struct RecordButtonStyle: ButtonStyle {
+    @Environment(\.isEnabled) private var isEnabled
+
+    func makeBody(configuration: Configuration) -> some View {
+        let pressed = configuration.isPressed
+        return configuration.label
+            .font(.archivo(14, black: true))
+            .textCase(.uppercase)
+            .foregroundStyle(Color.onHighlight)
+            .padding(.horizontal, 18)
+            .frame(minWidth: 120, minHeight: 42)
+            .background(Color.highlight)
+            .overlay(Rectangle().strokeBorder(Color.appText, lineWidth: 2))
+            .background(Rectangle().fill(Color.appText).offset(x: pressed ? 0 : 3, y: pressed ? 0 : 3))
+            .offset(x: pressed ? 3 : 0, y: pressed ? 3 : 0)
+            .opacity(isEnabled ? 1 : 0.5)
+    }
+}
+
+// Stands in for the quality label until the check finishes, stepping along like the web version's.
+struct LoadingBar: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        TimelineView(.periodic(from: .now, by: 0.2)) { context in
+            let step = Int(context.date.timeIntervalSinceReferenceDate * 5) % 6
+            Rectangle()
+                .fill(Color.appText)
+                .frame(width: reduceMotion ? 40 : 16)
+                .opacity(reduceMotion ? 0.5 : 1)
+                .offset(x: reduceMotion ? 0 : CGFloat(step) * 8 - 16)
+                .frame(width: 40, height: 2, alignment: .leading)
+                .clipped()
+        }
+        .padding(2)
+        .overlay(Rectangle().strokeBorder(Color.appText, lineWidth: 2))
+        .frame(width: 44, height: 6)
+    }
 }
 
 // Whether a recording is lossless, lossy or upsampled, with a note on hover, and a loading bar until that's known.
@@ -419,36 +515,49 @@ final class TooltipState: ObservableObject {
 struct QualityLabel: View {
     let report: QualityReport?
     var isLoading = false
-    // An object rather than @State, which doesn't compile with only the command line tools installed.
-    @StateObject private var tooltip = TooltipState()
+    @StateObject private var tooltip = Flag()
 
     var body: some View {
-        if isLoading && report == nil {
-            ProgressView()
-                .progressViewStyle(.linear)
-                .controlSize(.small)
-                .frame(width: 44)
-                .frame(width: 76, alignment: .trailing)
-                .accessibilityLabel("Checking quality")
-        } else {
-            label
+        Group {
+            if isLoading && report == nil {
+                LoadingBar().accessibilityLabel("Checking quality")
+            } else {
+                label
+            }
         }
+        .frame(width: 116, alignment: .trailing)
     }
 
     private var label: some View {
-        Text(report?.label ?? "")
-            .font(.caption)
-            .foregroundStyle(.secondary)
+        let text = report?.label ?? ""
+        // Only labels that admit something was lost get the highlight.
+        let lost = !text.isEmpty && text != "Lossless"
+        return Text(text)
+            .font(.archivo(11))
+            .textCase(.uppercase)
             .lineLimit(1)
-            .frame(width: 76, alignment: .trailing)
+            .padding(.horizontal, lost ? 4 : 0)
+            .padding(.vertical, 1)
+            .foregroundStyle(lost ? Color.onHighlight : Color.appText)
+            .background(lost ? Color.highlight : Color.clear)
             .contentShape(Rectangle())
             // A popover, because SwiftUI's .help only appears after a delay.
-            .onHover { tooltip.isShowing = $0 && !(report?.tooltip.isEmpty ?? true) }
-            .popover(isPresented: $tooltip.isShowing, arrowEdge: .top) {
-                Text(report?.tooltip ?? "").font(.caption).padding(8)
+            .onHover { tooltip.isOn = $0 && !(report?.tooltip.isEmpty ?? true) }
+            .popover(isPresented: $tooltip.isOn, arrowEdge: .top) {
+                Text(report?.tooltip ?? "")
+                    .font(.archivo(12))
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: 240, alignment: .leading)
+                    .padding(8)
             }
             .accessibilityLabel(report.map { "Quality: \($0.label). \($0.tooltip)" } ?? "")
-            .accessibilityHidden(report?.label.isEmpty ?? true)
+            .accessibilityHidden(text.isEmpty)
+    }
+}
+
+struct RowSeparator: View {
+    var body: some View {
+        Rectangle().fill(Color.appText).frame(height: 1)
     }
 }
 
@@ -458,10 +567,11 @@ struct LiveRecordingRow: View {
     let startedAt: Date
 
     var body: some View {
-        HStack {
-            Image(systemName: "record.circle.fill")
-                .frame(width: 18)
-                .foregroundStyle(.red)
+        HStack(spacing: 4) {
+            Image(systemName: "circle.fill")
+                .font(.system(size: 12))
+                .frame(width: 32, height: 32)
+                .foregroundStyle(Color.appRecord)
                 .accessibilityLabel("Recording")
 
             WaveformView(peaks: live.bars)
@@ -471,52 +581,117 @@ struct LiveRecordingRow: View {
                 .accessibilityElement()
                 .accessibilityLabel(name)
 
-            Text(timerInterval: startedAt...Date.distantFuture, countsDown: false)
-                .monospacedDigit()
-                .foregroundStyle(.secondary)
-
-            // Invisible, to line the waveform up with the finished rows below.
+            // Blank, to line the waveform up with the finished rows below.
             QualityLabel(report: nil)
-            Image(systemName: "doc.on.doc").hidden()
-            Image(systemName: "folder").hidden()
-            Image(systemName: "trash").hidden()
+
+            Text(timerInterval: startedAt...Date.distantFuture, countsDown: false)
+                .font(.archivo(11))
+                .monospacedDigit()
+                .frame(width: 44, alignment: .trailing)
+
+            Color.clear.frame(width: 104, height: 32)
         }
+        .padding(.vertical, 6)
+    }
+}
+
+// Where the source button sits, so its menu can open just below it, over the recordings.
+struct SourceButtonBounds: PreferenceKey {
+    static var defaultValue: Anchor<CGRect>? = nil
+    static func reduce(value: inout Anchor<CGRect>?, nextValue: () -> Anchor<CGRect>?) {
+        value = value ?? nextValue()
     }
 }
 
 struct ContentView: View {
     @ObservedObject var model: AppModel
+    @StateObject private var sourceMenu = Flag()
 
     var body: some View {
-        VStack(spacing: 0) {
-            controls.padding()
+        VStack(alignment: .leading, spacing: 0) {
+            Text("Audio Scratchpad")
+                .font(.archivo(15, black: true))
+                .textCase(.uppercase)
+                .foregroundStyle(Color.appBackground)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(Color.appText)
+                // Sits beside the window's close, minimise and zoom buttons, in place of the usual title.
+                .padding(.leading, 78)
+                .padding(.top, 4)
+                .accessibilityAddTraits(.isHeader)
+
+            controls
+                .padding(.horizontal, 16)
+                .padding(.top, 12)
+                .zIndex(1)
+
             if let message = model.message {
                 HStack {
-                    Text(message).foregroundStyle(.secondary)
+                    Text(message)
                     Spacer()
                     if model.needsPermission {
                         Button("Open Settings") { model.openPermissionSettings() }
+                            .buttonStyle(.plain)
+                            .font(.archivo(14, black: true))
+                            .underline()
                     }
                 }
-                .padding([.horizontal, .bottom])
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                .overlay(Rectangle().strokeBorder(Color.appText, lineWidth: 2))
+                .padding(.horizontal, 16)
+                .padding(.top, 12)
             }
-            Divider()
+
+            RowSeparator()
+                .padding(.horizontal, 16)
+                .padding(.top, 20)
+
             if model.recordings.isEmpty && !model.isRecording {
                 Text("No recordings yet")
-                    .foregroundStyle(.secondary)
+                    .font(.archivo(14, black: true))
+                    .textCase(.uppercase)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
-                List {
-                    if let startedAt = model.startedAt, let url = model.currentURL {
-                        LiveRecordingRow(live: model.live,
-                                         name: url.deletingPathExtension().lastPathComponent,
-                                         startedAt: startedAt)
+                ScrollView {
+                    LazyVStack(spacing: 0) {
+                        if let startedAt = model.startedAt, let url = model.currentURL {
+                            LiveRecordingRow(live: model.live,
+                                             name: url.deletingPathExtension().lastPathComponent,
+                                             startedAt: startedAt)
+                            if !model.recordings.isEmpty { RowSeparator() }
+                        }
+                        ForEach(model.recordings) { recording in
+                            row(for: recording)
+                            if recording.id != model.recordings.last?.id { RowSeparator() }
+                        }
                     }
-                    ForEach(model.recordings) { row(for: $0) }
+                    .padding(.horizontal, 16)
                 }
             }
         }
-        .frame(minWidth: 480, minHeight: 340)
+        .font(.archivo(14))
+        .foregroundStyle(Color.appText)
+        .frame(minWidth: 480, minHeight: 340, alignment: .topLeading)
+        .background(Color.appBackground)
+        .ignoresSafeArea(.container, edges: .top)
+        .overlayPreferenceValue(SourceButtonBounds.self) { anchor in
+            if sourceMenu.isOn, let anchor {
+                GeometryReader { geometry in
+                    let box = geometry[anchor]
+                    ZStack(alignment: .topLeading) {
+                        // Clicking anywhere else closes the menu, as with a normal one.
+                        Color.clear
+                            .contentShape(Rectangle())
+                            .onTapGesture { sourceMenu.isOn = false }
+                        sourceMenuList
+                            .frame(width: box.width)
+                            .offset(x: box.minX, y: box.maxY - 1)
+                    }
+                }
+            }
+        }
         .onAppear {
             model.refreshSources()
             model.refreshRecordings()
@@ -533,20 +708,22 @@ struct ContentView: View {
     }
 
     private var controls: some View {
-        HStack {
-            Picker("Source", selection: $model.selectedSource) {
-                Text("Choose a source…").tag(String?.none)
-                ForEach(model.sources) { source in
-                    Label { Text(source.name) } icon: { Image(nsImage: source.icon) }
-                        .tag(Optional(source.id))
-                }
-            }
-            .disabled(model.isCapturing)
+        HStack(spacing: 12) {
+            Text("Source")
+                .font(.archivo(14, black: true))
+                .textCase(.uppercase)
+                .accessibilityHidden(true)
+
+            sourceButton
 
             if let startedAt = model.startedAt {
                 Text(timerInterval: startedAt...Date.distantFuture, countsDown: false)
+                    .font(.archivo(14, black: true))
                     .monospacedDigit()
-                    .foregroundStyle(.red)
+                    .foregroundStyle(Color.onHighlight)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .background(Color.highlight)
             }
 
             Button {
@@ -560,23 +737,78 @@ struct ContentView: View {
             } label: {
                 Label(model.isWaitingForAudio ? "waiting for audio..." : model.isRecording ? "Stop" : "Record",
                       systemImage: model.isCapturing ? "stop.fill" : "record.circle")
-                    .frame(minWidth: 70)
             }
-            .controlSize(.large)
+            .buttonStyle(RecordButtonStyle())
             .disabled(model.selectedSource == nil || model.isStarting || model.isStopping)
         }
     }
 
+    // A button that opens a list of sources drawn to match the app, which a standard Mac menu can't be.
+    private var sourceButton: some View {
+        let source = model.sources.first { $0.id == model.selectedSource }
+        return Button {
+            if !sourceMenu.isOn { model.refreshSources() }
+            sourceMenu.isOn.toggle()
+        } label: {
+            HStack(spacing: 8) {
+                if let source { Image(nsImage: source.icon) }
+                Text(source?.name ?? "Choose a source…")
+                    .textCase(.uppercase)
+                    .lineLimit(1)
+                Spacer(minLength: 8)
+                Image(systemName: "chevron.down").font(.system(size: 11, weight: .heavy))
+            }
+            .padding(.horizontal, 12)
+            .frame(maxWidth: .infinity, minHeight: 42)
+            .contentShape(Rectangle())
+            .overlay(Rectangle().strokeBorder(Color.appText, lineWidth: 1))
+        }
+        .buttonStyle(.plain)
+        .disabled(model.isCapturing)
+        .opacity(model.isCapturing ? 0.5 : 1)
+        .anchorPreference(key: SourceButtonBounds.self, value: .bounds) { $0 }
+        .accessibilityLabel("Source")
+        .accessibilityValue(source?.name ?? "None chosen")
+    }
+
+    private var sourceMenuList: some View {
+        let options = VStack(spacing: 0) {
+            ForEach(model.sources) { source in
+                Button {
+                    model.selectedSource = source.id
+                    sourceMenu.isOn = false
+                } label: {
+                    HStack(spacing: 8) {
+                        Image(nsImage: source.icon)
+                        Text(source.name).textCase(.uppercase).lineLimit(1)
+                        Spacer(minLength: 0)
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 10)
+                    .modifier(HoverHighlight(selected: source.id == model.selectedSource))
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        // Scrolls only when there are too many apps open to fit.
+        return ViewThatFits(in: .vertical) {
+            options
+            ScrollView { options }
+        }
+        .frame(maxHeight: 280)
+        .background(Color.appBackground)
+        .overlay(Rectangle().strokeBorder(Color.appText, lineWidth: 1))
+        .background(Rectangle().fill(Color.appText).offset(x: 3, y: 3))
+    }
+
     private func row(for recording: Recording) -> some View {
-        HStack {
+        HStack(spacing: 4) {
             Button {
                 model.togglePlayback(recording)
             } label: {
                 Image(systemName: model.playingURL == recording.url ? "stop.fill" : "play.fill")
-                    .frame(width: 18)
-                    .contentShape(Rectangle())
             }
-            .buttonStyle(.borderless)
+            .buttonStyle(IconButtonStyle())
             .accessibilityLabel(model.playingURL == recording.url ? "Stop playing" : "Play")
 
             TimelineView(.animation(minimumInterval: 1.0 / 30, paused: model.playingURL != recording.url)) { _ in
@@ -597,22 +829,24 @@ struct ContentView: View {
                 .task(id: recording.url) { await model.loadQuality(for: recording.url) }
 
             Text(Duration.seconds(recording.duration).formatted(.time(pattern: .minuteSecond)))
+                .font(.archivo(11))
                 .monospacedDigit()
-                .foregroundStyle(.secondary)
+                .frame(width: 44, alignment: .trailing)
 
             Button { model.copyToClipboard(recording) } label: {
                 Image(systemName: model.copiedURL == recording.url ? "checkmark" : "doc.on.doc")
             }
-                .buttonStyle(.borderless)
+                .buttonStyle(IconButtonStyle())
                 .accessibilityLabel(model.copiedURL == recording.url ? "Copied" : "Copy to clipboard")
                 .overlay(FileDragArea(url: recording.url) { model.copyToClipboard(recording) })
             Button { model.reveal(recording) } label: { Image(systemName: "folder") }
-                .buttonStyle(.borderless)
+                .buttonStyle(IconButtonStyle())
                 .accessibilityLabel("Show in Finder")
             Button { model.moveToTrash(recording) } label: { Image(systemName: "trash") }
-                .buttonStyle(.borderless)
+                .buttonStyle(IconButtonStyle())
                 .accessibilityLabel("Move to Trash")
         }
+        .padding(.vertical, 6)
     }
 }
 
@@ -640,8 +874,8 @@ struct AudioScratchpadApp: App {
     var body: some Scene {
         Window("Audio Scratchpad", id: "main") {
             ContentView(model: model)
-                .tint(.appAccent)
                 .onAppear { delegate.model = model }
         }
+        .windowStyle(.hiddenTitleBar)
     }
 }

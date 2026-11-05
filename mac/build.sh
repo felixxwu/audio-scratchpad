@@ -20,12 +20,14 @@ $swiftc Waveform.swift RecordingFile.swift Quality.swift SelfCheck.swift -o ../b
 $swiftc AudioScratchpad.swift Recorder.swift Waveform.swift RecordingFile.swift Quality.swift -o "$app/Contents/MacOS/Audio Scratchpad"
 # The quality check is shared with the web version, which serves the same file.
 cp ../web/audio-quality.js "$app/Contents/Resources/"
+cp ../fonts/ArchivoExpanded-Regular.ttf ../fonts/ArchivoExpanded-Black.ttf ../fonts/OFL.txt "$app/Contents/Resources/"
 
 cat > "$app/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+  <key>ATSApplicationFontsPath</key><string>.</string>
   <key>CFBundleExecutable</key><string>Audio Scratchpad</string>
   <key>CFBundleIdentifier</key><string>com.felixwu.audioscratchpad</string>
   <key>CFBundleName</key><string>Audio Scratchpad</string>

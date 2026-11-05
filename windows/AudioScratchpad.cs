@@ -12,6 +12,7 @@ using System.Windows;
 using System.Windows.Automation;
 using System.Windows.Automation.Peers;
 using System.Windows.Controls;
+using System.Windows.Data;
 using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Markup;
@@ -34,7 +35,7 @@ sealed class AudioSource
     public static readonly AudioSource Microphone = new AudioSource
     {
         Name = "Microphone",
-        Icon = new DrawingImage(new GeometryDrawing(null, new System.Windows.Media.Pen(Theme.Accent, 1.1), Geometry.Parse(Theme.Microphone))),
+        Icon = new DrawingImage(new GeometryDrawing(null, new System.Windows.Media.Pen(Theme.Text, 1.6), Geometry.Parse(Theme.Microphone))),
     };
 
     public int ProcessId;
@@ -63,26 +64,35 @@ sealed class WaveformView : FrameworkElement
         // Painted so empty space between bars still takes clicks.
         context.DrawRectangle(Brushes.Transparent, null, new Rect(RenderSize));
         double width = RenderSize.Width, height = RenderSize.Height;
-        if (peaks.Length > 0)
+        // Bars 2 wide with a 1 gap, snapped to whole screen pixels, because blurred edges show up as faint stripes.
+        double scale = VisualTreeHelper.GetDpi(this).DpiScaleX;
+        Func<double, double> snap = value => Math.Round(value * scale) / scale;
+        if (peaks.Length > 0 && width > 0)
         {
-            // One shape rather than a rectangle per bar, because separate edges leave faint seams between bars.
-            double barWidth = width / peaks.Length;
             var shape = new StreamGeometry();
             using (var figure = shape.Open())
             {
-                for (int i = 0; i < peaks.Length; i++)
+                for (double x = 0; x < width; x += 3)
                 {
-                    double bar = Math.Max(1, peaks[i] * height);
-                    double left = i * barWidth, top = (height - bar) / 2;
+                    int from = (int)(x / width * peaks.Length);
+                    int to = Math.Min(peaks.Length, Math.Max(from + 1, (int)((x + 3) / width * peaks.Length)));
+                    float peak = 0;
+                    for (int i = from; i < to; i++) peak = Math.Max(peak, peaks[i]);
+                    double bar = snap(Math.Max(1, peak * height));
+                    double left = snap(x), right = left + snap(2), top = snap((height - bar) / 2);
                     figure.BeginFigure(new Point(left, top), true, true);
-                    figure.PolyLineTo(new[] { new Point(left + barWidth, top), new Point(left + barWidth, top + bar), new Point(left, top + bar) }, false, false);
+                    figure.PolyLineTo(new[] { new Point(right, top), new Point(right, top + bar), new Point(left, top + bar) }, false, false);
                 }
             }
             shape.Freeze();
-            context.DrawGeometry(Theme.Accent, null, shape);
+            context.DrawGeometry(Theme.Text, null, shape);
         }
         if (playhead.HasValue)
-            context.DrawRectangle(Brushes.White, null, new Rect(width * playhead.Value - 1, 0, 2, height));
+        {
+            double x = width * playhead.Value;
+            context.DrawRectangle(Theme.Text, null, new Rect(x - 2, 0, 4, height));
+            context.DrawRectangle(Theme.Highlight, null, new Rect(x - 1, 0, 2, height));
+        }
     }
 
     protected override void OnMouseLeftButtonDown(MouseButtonEventArgs e)
@@ -118,12 +128,18 @@ sealed partial class MainWindow : Window
 {
     readonly string folder = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyMusic), "Audio Scratchpad");
 
-    readonly ComboBox sourcePicker = new ComboBox { Width = 206.5, Height = 24 };
-    readonly TextBlock topTimer = new TextBlock { Foreground = Theme.Recording, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(8, 0, 0, 0) };
-    readonly Button recordButton = new Button { MinWidth = 98, Height = 28, Margin = new Thickness(8, 0, 0, 0) };
-    readonly TextBlock messageText = new TextBlock { Foreground = Theme.Secondary, Margin = new Thickness(16, 0, 16, 12), TextWrapping = TextWrapping.Wrap };
-    readonly TextBlock emptyText = new TextBlock { Text = "No recordings yet", Foreground = Theme.Secondary, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
-    readonly StackPanel list = new StackPanel { Margin = new Thickness(16, 0, 11, 6) };
+    readonly ComboBox sourcePicker = new ComboBox { Height = 42 };
+    readonly TextBlock topTimer = new TextBlock
+    {
+        Foreground = Theme.OnHighlight, Background = Theme.Highlight, FontWeight = FontWeights.Black,
+        Padding = new Thickness(6, 2, 6, 2), VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(12, 0, 0, 0),
+    };
+    // 3 bigger than it looks, with its shadow hanging past the edges it lines up by.
+    readonly Button recordButton = new Button { MinWidth = 123, Height = 45, Margin = new Thickness(12, 0, -3, -3) };
+    readonly TextBlock messageText = new TextBlock { Foreground = Theme.Text, TextWrapping = TextWrapping.Wrap };
+    readonly Border messageBox = new Border { BorderBrush = Theme.Text, BorderThickness = new Thickness(2), Padding = new Thickness(12, 8, 12, 8), Margin = new Thickness(16, 12, 16, 0) };
+    readonly TextBlock emptyText = new TextBlock { Text = "NO RECORDINGS YET", FontWeight = FontWeights.Black, Foreground = Theme.Text, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
+    readonly StackPanel list = new StackPanel { Margin = new Thickness(16, 0, 16, 6) };
     readonly ScrollViewer scroller = new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
     readonly DispatcherTimer timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1.0 / 30) };
     readonly MediaPlayer player = new MediaPlayer();
@@ -162,13 +178,14 @@ sealed partial class MainWindow : Window
         MinWidth = 480;
         MinHeight = 340;
         Background = Theme.Background;
-        FontFamily = new System.Windows.Media.FontFamily("Segoe UI");
-        FontSize = 13.5;
+        Foreground = Theme.Text;
+        FontFamily = (System.Windows.Media.FontFamily)FindResource("AppFont");
+        FontSize = 14;
         TextOptions.SetTextFormattingMode(this, TextFormattingMode.Ideal);
         TextOptions.SetTextRenderingMode(this, TextRenderingMode.Grayscale);
         WindowChrome.SetWindowChrome(this, new WindowChrome
         {
-            CaptionHeight = 32,
+            CaptionHeight = 44,
             ResizeBorderThickness = new Thickness(5),
             CornerRadius = new CornerRadius(0),
             GlassFrameThickness = new Thickness(0, 0, 0, 1),
@@ -180,16 +197,21 @@ sealed partial class MainWindow : Window
             HwndSource.FromHwnd(new WindowInteropHelper(this).Handle).AddHook(SnapLayoutsHook);
         };
 
-        recordButton.Style = (Style)FindResource("Pill");
-        var controls = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 16, 0, 16) };
-        controls.Children.Add(new TextBlock { Text = "Source", Foreground = Theme.Label, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 8.5, 0) });
-        controls.Children.Add(sourcePicker);
-        controls.Children.Add(topTimer);
+        recordButton.Style = (Style)FindResource("Record");
+        messageBox.Child = messageText;
+        var controls = new DockPanel { Margin = new Thickness(16, 4, 16, 0) };
+        var sourceLabel = new TextBlock { Text = "SOURCE", FontWeight = FontWeights.Black, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 12, 0) };
+        DockPanel.SetDock(sourceLabel, Dock.Left);
+        DockPanel.SetDock(recordButton, Dock.Right);
+        DockPanel.SetDock(topTimer, Dock.Right);
+        controls.Children.Add(sourceLabel);
         controls.Children.Add(recordButton);
+        controls.Children.Add(topTimer);
+        controls.Children.Add(sourcePicker);
         AutomationProperties.SetName(sourcePicker, "Source");
 
         BuildLiveRow();
-        var content = new StackPanel { Margin = new Thickness(0, 10, 0, 0) };
+        var content = new StackPanel();
         content.Children.Add(liveRow);
         content.Children.Add(list);
         scroller.Content = content;
@@ -204,15 +226,15 @@ sealed partial class MainWindow : Window
         root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         root.RowDefinitions.Add(new RowDefinition());
-        var divider = new Border { Height = 1, Background = Theme.Line };
+        var divider = new Border { Height = 1, Background = Theme.Text, Margin = new Thickness(16, 20, 16, 0) };
         var titleBar = BuildTitleBar();
         Grid.SetRow(controls, 1);
-        Grid.SetRow(messageText, 2);
+        Grid.SetRow(messageBox, 2);
         Grid.SetRow(divider, 3);
         Grid.SetRow(body, 4);
         root.Children.Add(titleBar);
         root.Children.Add(controls);
-        root.Children.Add(messageText);
+        root.Children.Add(messageBox);
         root.Children.Add(divider);
         root.Children.Add(body);
         Content = root;
@@ -242,12 +264,17 @@ sealed partial class MainWindow : Window
 
     static Shape Glyph(string data, bool filled)
     {
-        return new Shape
+        var shape = new Shape
         {
-            Data = Geometry.Parse(data), Stroke = Theme.Accent, StrokeThickness = 1.1, Fill = filled ? Theme.Accent : null,
-            StrokeLineJoin = PenLineJoin.Round, StrokeStartLineCap = PenLineCap.Round, StrokeEndLineCap = PenLineCap.Round,
+            Data = Geometry.Parse(data), StrokeThickness = 1.6,
+            StrokeLineJoin = PenLineJoin.Miter, StrokeStartLineCap = PenLineCap.Square, StrokeEndLineCap = PenLineCap.Square,
             IsHitTestVisible = false,
         };
+        // Follows its button's text colour, so it turns black on the yellow hover.
+        var foreground = new Binding("Foreground") { RelativeSource = new RelativeSource(RelativeSourceMode.FindAncestor, typeof(Control), 1) };
+        shape.SetBinding(Shape.StrokeProperty, foreground);
+        if (filled) shape.SetBinding(Shape.FillProperty, foreground);
+        return shape;
     }
 
     void RefreshSources()
@@ -266,12 +293,12 @@ sealed partial class MainWindow : Window
         foreach (var process in processes) process.Dispose();
         knownSources = sources.ToDictionary(s => s.ProcessId);
 
-        var items = new List<object> { new ComboBoxItem { Content = "Choose a source\u2026" } };
+        var items = new List<object> { new ComboBoxItem { Content = "CHOOSE A SOURCE\u2026" } };
         foreach (var source in new[] { AudioSource.Microphone }.Concat(sources))
         {
             var row = new StackPanel { Orientation = Orientation.Horizontal };
-            row.Children.Add(new Image { Source = source.Icon, Width = 14, Height = 14, Margin = new Thickness(0, 0, 3.5, 0) });
-            row.Children.Add(new TextBlock { Text = source.Name, MaxWidth = 150, TextTrimming = TextTrimming.CharacterEllipsis });
+            row.Children.Add(new Image { Source = source.Icon, Width = 16, Height = 16, Margin = new Thickness(0, 0, 8, 0) });
+            row.Children.Add(new TextBlock { Text = source.Name.ToUpperInvariant(), MaxWidth = 300, TextTrimming = TextTrimming.CharacterEllipsis });
             items.Add(new ComboBoxItem { Content = row, Tag = source });
         }
         sourcePicker.ItemsSource = items;
@@ -348,7 +375,13 @@ sealed partial class MainWindow : Window
     async void LoadQuality(string path, Row row)
     {
         QualityReport report;
-        if (!qualities.TryGetValue(path, out report))
+        // The check can't tell a microphone's own filter from a lossy encoder's, and the app already knows the answer.
+        if (Path.GetFileName(path).StartsWith("Microphone "))
+        {
+            string tooltip = "Recorded straight from the microphone, so nothing was lost.";
+            report = new QualityReport { Verdict = "lossless", Label = "Lossless", Summary = tooltip, Tooltip = tooltip };
+        }
+        else if (!qualities.TryGetValue(path, out report))
         {
             var check = qualityQueue.ContinueWith(_ =>
             {
@@ -371,7 +404,14 @@ sealed partial class MainWindow : Window
             qualities[path] = report;
         }
         row.QualityLoading.Visibility = Visibility.Collapsed;
-        row.Quality.Text = report.Label;
+        row.Quality.Text = report.Label.ToUpperInvariant();
+        // Only labels that admit something was lost get the highlight.
+        if (report.Label != "" && report.Label != "Lossless")
+        {
+            row.Quality.Background = Theme.Highlight;
+            row.Quality.Foreground = Theme.OnHighlight;
+            row.Quality.Padding = new Thickness(4, 1, 4, 1);
+        }
         row.Quality.ToolTip = string.IsNullOrEmpty(report.Tooltip) ? null : report.Tooltip;
         AutomationProperties.SetName(row.Quality, report.Label == "" ? "" : "Quality: " + report.Label + ". " + report.Tooltip);
     }
@@ -379,15 +419,15 @@ sealed partial class MainWindow : Window
     // Columns: play, waveform, quality, time, then the copy, folder and trash buttons.
     static Grid NewRowGrid()
     {
-        var grid = new Grid { Height = 36 };
-        foreach (double width in new double[] { 25, -1, 80, 40, 24, 24, 24 })
+        var grid = new Grid { Height = 45 };
+        foreach (double width in new double[] { 32, -1, 120, 48, 32, 32, 32 })
             grid.ColumnDefinitions.Add(new ColumnDefinition { Width = width < 0 ? new GridLength(1, GridUnitType.Star) : new GridLength(width) });
         return grid;
     }
 
     static Button IconButton(string icon, bool filled, string label, int column, Grid grid)
     {
-        var button = new Button { Content = Glyph(icon, filled), Width = 24, Height = 24, ToolTip = label };
+        var button = new Button { Content = Glyph(icon, filled), Width = 32, Height = 32, ToolTip = label };
         AutomationProperties.SetName(button, label);
         Grid.SetColumn(button, column);
         grid.Children.Add(button);
@@ -398,7 +438,7 @@ sealed partial class MainWindow : Window
     {
         var text = new TextBlock
         {
-            Foreground = Theme.Secondary, VerticalAlignment = VerticalAlignment.Center,
+            FontSize = 11, VerticalAlignment = VerticalAlignment.Center,
             HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 0, 4, 0),
         };
         Grid.SetColumn(text, 3);
@@ -411,7 +451,7 @@ sealed partial class MainWindow : Window
     {
         var text = new TextBlock
         {
-            Foreground = Theme.Secondary, FontSize = 11.5, VerticalAlignment = VerticalAlignment.Center,
+            FontSize = 11, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 4, 0),
             HorizontalAlignment = HorizontalAlignment.Right, TextTrimming = TextTrimming.CharacterEllipsis,
             Background = Brushes.Transparent, // so the whole column shows the note on hover
         };
@@ -421,19 +461,17 @@ sealed partial class MainWindow : Window
         return text;
     }
 
-    // The thin line between rows, which only runs under the time and buttons.
     static Border RowSeparator(Grid grid)
     {
-        var line = new Border { Height = 1, Background = Theme.Line, VerticalAlignment = VerticalAlignment.Bottom, Margin = new Thickness(8, 0, 4, 0) };
-        Grid.SetColumn(line, 3);
-        Grid.SetColumnSpan(line, 4);
+        var line = new Border { Height = 1, Background = Theme.Text, VerticalAlignment = VerticalAlignment.Bottom };
+        Grid.SetColumnSpan(line, 7);
         grid.Children.Add(line);
         return line;
     }
 
     static WaveformView NewWave(Grid grid)
     {
-        var wave = new WaveformView { Margin = new Thickness(0, 4, 0, 4) };
+        var wave = new WaveformView { Height = 28, Margin = new Thickness(4, 0, 4, 1) };
         Grid.SetColumn(wave, 1);
         grid.Children.Add(wave);
         return wave;
@@ -441,9 +479,7 @@ sealed partial class MainWindow : Window
 
     static UIElement RecordDot()
     {
-        var dot = new Grid { Width = 12.75, Height = 12.75, HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(2.6, 0, 0, 0) };
-        dot.Children.Add(new Ellipse { Fill = Theme.Recording });
-        dot.Children.Add(new Ellipse { Fill = Theme.Background, Width = 5, Height = 5 });
+        var dot = new Ellipse { Fill = Theme.Recording, Width = 12, Height = 12, Margin = new Thickness(0, 0, 0, 1) };
         AutomationProperties.SetName(dot, "Recording");
         return dot;
     }
@@ -451,7 +487,7 @@ sealed partial class MainWindow : Window
     void BuildLiveRow()
     {
         liveRow = NewRowGrid();
-        liveRow.Margin = new Thickness(16, 0, 11, 0);
+        liveRow.Margin = new Thickness(16, 0, 16, 0);
         liveRow.Children.Add(RecordDot());
         liveWave = NewWave(liveRow);
         liveTimer = TimeText(liveRow);
@@ -470,8 +506,6 @@ sealed partial class MainWindow : Window
 
         row.Play = IconButton(Theme.Play, true, "Play", 0, grid);
         SetPlayButton(row, path == playingPath);
-        row.Play.Width = 18;
-        row.Play.HorizontalAlignment = HorizontalAlignment.Left;
         row.Play.Click += (s, e) => TogglePlayback(path);
 
         row.Wave = NewWave(grid);
@@ -483,8 +517,8 @@ sealed partial class MainWindow : Window
         // Shown in place of the label until the check finishes.
         row.QualityLoading = new ProgressBar
         {
-            IsIndeterminate = true, Width = 44, Height = 3, HorizontalAlignment = HorizontalAlignment.Right,
-            Foreground = Theme.Accent, Background = Theme.Line, BorderThickness = new Thickness(0),
+            IsIndeterminate = true, Width = 44, Height = 6, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 0, 4, 0),
+            Foreground = Theme.Text, Background = Theme.Background, BorderBrush = Theme.Text, BorderThickness = new Thickness(2),
         };
         AutomationProperties.SetName(row.QualityLoading, "Checking quality");
         Grid.SetColumn(row.QualityLoading, 2);
@@ -686,7 +720,7 @@ sealed partial class MainWindow : Window
     void ShowMessage(string message)
     {
         messageText.Text = message;
-        messageText.Visibility = message == null ? Visibility.Collapsed : Visibility.Visible;
+        messageBox.Visibility = message == null ? Visibility.Collapsed : Visibility.Visible;
     }
 
     void Tick()
@@ -727,15 +761,15 @@ sealed partial class MainWindow : Window
         }
         else
         {
-            var ring = new Grid { Width = 12.75, Height = 12.75 };
-            ring.Children.Add(new Ellipse { Stroke = Theme.Accent, StrokeThickness = 1.1 });
-            ring.Children.Add(new Ellipse { Fill = Theme.Accent, Width = 5, Height = 5 });
+            var ring = new Grid { Width = 14, Height = 14 };
+            ring.Children.Add(new Ellipse { Stroke = Theme.OnHighlight, StrokeThickness = 2 });
+            ring.Children.Add(new Ellipse { Fill = Theme.OnHighlight, Width = 6, Height = 6 });
             icon = ring;
         }
         icon.VerticalAlignment = VerticalAlignment.Center;
         var panel = new StackPanel { Orientation = Orientation.Horizontal };
         panel.Children.Add(icon);
-        panel.Children.Add(new TextBlock { Text = label, Margin = new Thickness(9.75, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center });
+        panel.Children.Add(new TextBlock { Text = label.ToUpperInvariant(), Margin = new Thickness(8, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center });
         return panel;
     }
 
@@ -744,6 +778,7 @@ sealed partial class MainWindow : Window
     {
         var app = new Application();
         app.Resources = (ResourceDictionary)XamlReader.Parse(Theme.Styles);
+        app.Resources["AppFont"] = Theme.LoadFont();
         app.Run(new MainWindow());
     }
 }

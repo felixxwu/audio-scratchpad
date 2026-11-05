@@ -1,4 +1,4 @@
-// The window's own title bar, drawn to match the app's dark look while keeping what Windows gives a normal one.
+// The window's own title bar, drawn to match the app's look while keeping what Windows gives a normal one.
 using System;
 using System.Runtime.InteropServices;
 using System.Windows;
@@ -11,10 +11,11 @@ sealed partial class MainWindow
 {
     UIElement BuildTitleBar()
     {
-        var title = new TextBlock
+        var title = new Border
         {
-            Text = Title, Foreground = Theme.TitleText, FontSize = 12,
-            VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(12, 0, 0, 0),
+            Background = Theme.Text, Padding = new Thickness(8, 4, 8, 4),
+            HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(16, 0, 0, 0),
+            Child = new TextBlock { Text = Title.ToUpperInvariant(), Foreground = Theme.Background, FontSize = 15, FontWeight = FontWeights.Black },
         };
         maximizeButton = CaptionButton("\uE922", "Maximize", "Caption", ToggleMaximized);
         var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right };
@@ -22,7 +23,7 @@ sealed partial class MainWindow
         buttons.Children.Add(maximizeButton);
         buttons.Children.Add(CaptionButton("\uE8BB", "Close", "CloseCaption", Close));
 
-        var bar = new Grid { Height = 32, Background = Theme.TitleBar };
+        var bar = new Grid { Height = 44, Background = Theme.Background };
         bar.Children.Add(title);
         bar.Children.Add(buttons);
 
@@ -68,7 +69,7 @@ sealed partial class MainWindow
                 handled = true;
                 return new IntPtr(overMaximize);
             case mouseMove:
-                if (onMaximize) maximizeButton.Background = Theme.Line;
+                if (onMaximize) maximizeButton.Background = Theme.Control;
                 else maximizeButton.ClearValue(BackgroundProperty);
                 break;
             case mouseLeave:
@@ -104,7 +105,7 @@ sealed partial class MainWindow
     void RoundWindow()
     {
         var window = new WindowInteropHelper(this).Handle;
-        int round = 2, outline = 0x00555555;
+        int round = 2, outline = 0x00E3EEF3;
         const int cornerPreference = 33, borderColor = 34;
         DwmSetWindowAttribute(window, cornerPreference, ref round, sizeof(int));
         DwmSetWindowAttribute(window, borderColor, ref outline, sizeof(int));

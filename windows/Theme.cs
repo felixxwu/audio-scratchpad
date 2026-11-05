@@ -1,28 +1,53 @@
-// The look of the app, with colours and sizes measured from the Mac version's screenshot (image.png).
+// The look of the app: warm off-black, cream and highlighter yellow, set in Archivo Expanded, matching the web version in dark mode.
+using System;
+using System.IO;
 using System.Windows.Media;
 
 static class Theme
 {
-    const string AccentColor = "#CCE2FC";
-    const string LabelColor = "#DEDEDE";
-    const string LineColor = "#3D3C3B";
-    const string CaptionPressedColor = "#4A4948";
+    const string TextColor = "#F3EEE3";
+    const string BackgroundColor = "#14120F";
+    const string ControlColor = "#2A261F";
+    const string HighlightColor = "#FFDF1F";
+    const string OnHighlightColor = "#1A1814";
 
-    public static readonly SolidColorBrush Accent = Brush(AccentColor);
-    public static readonly SolidColorBrush Background = Brush("#282726");
-    public static readonly SolidColorBrush TitleBar = Brush("#302E2E");
-    public static readonly SolidColorBrush Line = Brush(LineColor);
-    public static readonly SolidColorBrush TitleText = Brush("#ADABAB");
-    public static readonly SolidColorBrush Label = Brush(LabelColor);
-    public static readonly SolidColorBrush Secondary = Brush("#9E9E9D");
-    public static readonly SolidColorBrush Recording = Brush("#FF453A");
-    public static readonly SolidColorBrush CaptionPressed = Brush(CaptionPressedColor);
+    public static readonly SolidColorBrush Text = Brush(TextColor);
+    public static readonly SolidColorBrush Background = Brush(BackgroundColor);
+    public static readonly SolidColorBrush Highlight = Brush(HighlightColor);
+    public static readonly SolidColorBrush Control = Brush(ControlColor);
+    public static readonly SolidColorBrush CaptionPressed = Brush("#38332A");
+    public static readonly SolidColorBrush OnHighlight = Brush(OnHighlightColor);
+    public static readonly SolidColorBrush Recording = Brush("#FF5A3C");
 
     static SolidColorBrush Brush(string color)
     {
         var brush = (SolidColorBrush)new BrushConverter().ConvertFromString(color);
         brush.Freeze();
         return brush;
+    }
+
+    // WPF can only load a font from a file, so the ones built into the exe are copied to the user's app data.
+    public static FontFamily LoadFont()
+    {
+        try
+        {
+            string folder = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Audio Scratchpad", "Fonts");
+            Directory.CreateDirectory(folder);
+            foreach (string name in new[] { "ArchivoExpanded-Regular.ttf", "ArchivoExpanded-Black.ttf", "OFL.txt" })
+            {
+                string path = Path.Combine(folder, name);
+                using (var source = typeof(Theme).Assembly.GetManifestResourceStream(name))
+                {
+                    if (File.Exists(path) && new FileInfo(path).Length == source.Length) continue;
+                    using (var file = File.Create(path)) source.CopyTo(file);
+                }
+            }
+            return new FontFamily(new Uri(folder + Path.DirectorySeparatorChar), "./#Archivo Expanded");
+        }
+        catch (Exception)
+        {
+            return new FontFamily("Segoe UI");
+        }
     }
 
     // Icons drawn to match the Mac app's symbols, in window units.
@@ -54,14 +79,16 @@ static class Theme
     <Setter Property='Control.Template'>
       <Setter.Value>
         <ControlTemplate>
-          <Rectangle Margin='-1' Stroke='" + AccentColor + @"' StrokeThickness='1' RadiusX='4' RadiusY='4' />
+          <Rectangle Margin='-3' Stroke='" + TextColor + @"' StrokeThickness='2' />
         </ControlTemplate>
       </Setter.Value>
     </Setter>
   </Style>
 
+  <!-- Icon buttons, which turn highlighter yellow under the pointer. -->
   <Style TargetType='Button'>
     <Setter Property='FocusVisualStyle' Value='{StaticResource Focus}' />
+    <Setter Property='Foreground' Value='" + TextColor + @"' />
     <Setter Property='Template'>
       <Setter.Value>
         <ControlTemplate TargetType='Button'>
@@ -69,27 +96,33 @@ static class Theme
             <ContentPresenter HorizontalAlignment='Center' VerticalAlignment='Center' />
           </Border>
           <ControlTemplate.Triggers>
-            <Trigger Property='IsMouseOver' Value='True'><Setter TargetName='Box' Property='Opacity' Value='0.75' /></Trigger>
-            <Trigger Property='IsPressed' Value='True'><Setter TargetName='Box' Property='Opacity' Value='0.5' /></Trigger>
+            <Trigger Property='IsMouseOver' Value='True'>
+              <Setter TargetName='Box' Property='Background' Value='" + HighlightColor + @"' />
+              <Setter Property='Foreground' Value='" + OnHighlightColor + @"' />
+            </Trigger>
           </ControlTemplate.Triggers>
         </ControlTemplate>
       </Setter.Value>
     </Setter>
   </Style>
 
-  <Style x:Key='Pill' TargetType='Button'>
+  <!-- A yellow key with a hard shadow that it presses down into. -->
+  <Style x:Key='Record' TargetType='Button'>
     <Setter Property='FocusVisualStyle' Value='{StaticResource Focus}' />
-    <Setter Property='Foreground' Value='" + AccentColor + @"' />
+    <Setter Property='Foreground' Value='" + OnHighlightColor + @"' />
+    <Setter Property='FontWeight' Value='Black' />
     <Setter Property='Template'>
       <Setter.Value>
         <ControlTemplate TargetType='Button'>
-          <Border x:Name='Box' Background='#303031' CornerRadius='14' Padding='17,0'>
-            <ContentPresenter HorizontalAlignment='Center' VerticalAlignment='Center' />
-          </Border>
+          <Grid x:Name='Root' Margin='0,0,3,3'>
+            <Border Background='" + TextColor + @"' Margin='3,3,-3,-3' />
+            <Border x:Name='Box' Background='" + HighlightColor + @"' BorderBrush='" + TextColor + @"' BorderThickness='2' Padding='18,0'>
+              <ContentPresenter HorizontalAlignment='Center' VerticalAlignment='Center' />
+            </Border>
+          </Grid>
           <ControlTemplate.Triggers>
-            <Trigger Property='IsMouseOver' Value='True'><Setter TargetName='Box' Property='Background' Value='#3A3A3B' /></Trigger>
-            <Trigger Property='IsPressed' Value='True'><Setter TargetName='Box' Property='Background' Value='#444445' /></Trigger>
-            <Trigger Property='IsEnabled' Value='False'><Setter TargetName='Box' Property='Opacity' Value='0.5' /></Trigger>
+            <Trigger Property='IsPressed' Value='True'><Setter TargetName='Box' Property='Margin' Value='3,3,-3,-3' /></Trigger>
+            <Trigger Property='IsEnabled' Value='False'><Setter TargetName='Root' Property='Opacity' Value='0.5' /></Trigger>
           </ControlTemplate.Triggers>
         </ControlTemplate>
       </Setter.Value>
@@ -99,9 +132,10 @@ static class Theme
   <Style x:Key='Caption' TargetType='Button'>
     <Setter Property='Focusable' Value='False' />
     <Setter Property='Width' Value='46' />
-    <Setter Property='Height' Value='32' />
+    <Setter Property='Height' Value='44' />
+    <Setter Property='VerticalAlignment' Value='Top' />
     <Setter Property='Background' Value='Transparent' />
-    <Setter Property='Foreground' Value='" + LabelColor + @"' />
+    <Setter Property='Foreground' Value='" + TextColor + @"' />
     <Setter Property='FontFamily' Value='Segoe MDL2 Assets' />
     <Setter Property='FontSize' Value='10' />
     <Setter Property='Template'>
@@ -114,8 +148,8 @@ static class Theme
       </Setter.Value>
     </Setter>
     <Style.Triggers>
-      <Trigger Property='IsMouseOver' Value='True'><Setter Property='Background' Value='" + LineColor + @"' /></Trigger>
-      <Trigger Property='IsPressed' Value='True'><Setter Property='Background' Value='" + CaptionPressedColor + @"' /></Trigger>
+      <Trigger Property='IsMouseOver' Value='True'><Setter Property='Background' Value='" + ControlColor + @"' /></Trigger>
+      <Trigger Property='IsPressed' Value='True'><Setter Property='Background' Value='#38332A' /></Trigger>
     </Style.Triggers>
   </Style>
 
@@ -134,7 +168,7 @@ static class Theme
 
   <Style TargetType='ComboBox'>
     <Setter Property='FocusVisualStyle' Value='{StaticResource Focus}' />
-    <Setter Property='Foreground' Value='" + AccentColor + @"' />
+    <Setter Property='Foreground' Value='" + TextColor + @"' />
     <Setter Property='Template'>
       <Setter.Value>
         <ControlTemplate TargetType='ComboBox'>
@@ -143,25 +177,24 @@ static class Theme
                           IsChecked='{Binding IsDropDownOpen, Mode=TwoWay, RelativeSource={RelativeSource TemplatedParent}}'>
               <ToggleButton.Template>
                 <ControlTemplate TargetType='ToggleButton'>
-                  <Border x:Name='Box' Background='#303031' CornerRadius='5'>
-                    <Path HorizontalAlignment='Right' VerticalAlignment='Center' Margin='0,0,10,0' Stroke='" + AccentColor + @"' StrokeThickness='1.2'
-                          StrokeStartLineCap='Round' StrokeEndLineCap='Round' StrokeLineJoin='Round'
-                          Data='M0,3.8 L3.6,0 L7.2,3.8 M0,6.7 L3.6,10.5 L7.2,6.7' />
+                  <Border Background='" + BackgroundColor + @"' BorderBrush='" + TextColor + @"' BorderThickness='1'>
+                    <Path HorizontalAlignment='Right' VerticalAlignment='Center' Margin='0,0,12,0' Stroke='" + TextColor + @"' StrokeThickness='2'
+                          Data='M0,0 L4,4 L8,0' />
                   </Border>
-                  <ControlTemplate.Triggers>
-                    <Trigger Property='IsMouseOver' Value='True'><Setter TargetName='Box' Property='Background' Value='#3A3A3B' /></Trigger>
-                  </ControlTemplate.Triggers>
                 </ControlTemplate>
               </ToggleButton.Template>
             </ToggleButton>
-            <ContentPresenter IsHitTestVisible='False' Margin='13,0,24,0' VerticalAlignment='Center' HorizontalAlignment='Left'
+            <ContentPresenter IsHitTestVisible='False' Margin='12,0,36,0' VerticalAlignment='Center' HorizontalAlignment='Left'
                               Content='{TemplateBinding SelectionBoxItem}' ContentTemplate='{TemplateBinding SelectionBoxItemTemplate}' />
-            <Popup x:Name='PART_Popup' AllowsTransparency='True' Placement='Bottom' VerticalOffset='3' Focusable='False'
+            <!-- The list overlaps the box's bottom edge, with room around it for its shadow. -->
+            <Popup x:Name='PART_Popup' AllowsTransparency='True' Placement='Bottom' VerticalOffset='-1' Focusable='False'
                    IsOpen='{Binding IsDropDownOpen, RelativeSource={RelativeSource TemplatedParent}}'>
-              <Border Background='#302F2F' BorderBrush='" + LineColor + @"' BorderThickness='1' CornerRadius='6' Padding='0,4'
-                      MinWidth='{Binding ActualWidth, ElementName=Root}' MaxHeight='{TemplateBinding MaxDropDownHeight}'>
-                <ScrollViewer VerticalScrollBarVisibility='Auto'><ItemsPresenter /></ScrollViewer>
-              </Border>
+              <Grid Margin='0,0,3,3' MinWidth='{Binding ActualWidth, ElementName=Root}' MaxHeight='{TemplateBinding MaxDropDownHeight}'>
+                <Border Background='" + TextColor + @"' Margin='3,3,-3,-3' />
+                <Border Background='" + BackgroundColor + @"' BorderBrush='" + TextColor + @"' BorderThickness='1'>
+                  <ScrollViewer VerticalScrollBarVisibility='Auto'><ItemsPresenter /></ScrollViewer>
+                </Border>
+              </Grid>
             </Popup>
           </Grid>
           <ControlTemplate.Triggers>
@@ -173,16 +206,20 @@ static class Theme
   </Style>
 
   <Style TargetType='ComboBoxItem'>
-    <Setter Property='Foreground' Value='" + AccentColor + @"' />
+    <Setter Property='Foreground' Value='" + TextColor + @"' />
     <Setter Property='FocusVisualStyle' Value='{x:Null}' />
     <Setter Property='Template'>
       <Setter.Value>
         <ControlTemplate TargetType='ComboBoxItem'>
-          <Border x:Name='Box' Background='Transparent' CornerRadius='4' Margin='4,0' Padding='9,3'>
+          <Border x:Name='Box' Background='Transparent' Padding='12,10'>
             <ContentPresenter />
           </Border>
           <ControlTemplate.Triggers>
-            <Trigger Property='IsHighlighted' Value='True'><Setter TargetName='Box' Property='Background' Value='#45464A' /></Trigger>
+            <Trigger Property='IsSelected' Value='True'><Setter TargetName='Box' Property='Background' Value='" + ControlColor + @"' /></Trigger>
+            <Trigger Property='IsHighlighted' Value='True'>
+              <Setter TargetName='Box' Property='Background' Value='" + HighlightColor + @"' />
+              <Setter Property='Foreground' Value='" + OnHighlightColor + @"' />
+            </Trigger>
           </ControlTemplate.Triggers>
         </ControlTemplate>
       </Setter.Value>
@@ -190,7 +227,7 @@ static class Theme
   </Style>
 
   <Style TargetType='ScrollBar'>
-    <Setter Property='Width' Value='8' />
+    <Setter Property='Width' Value='6' />
     <Setter Property='Template'>
       <Setter.Value>
         <ControlTemplate TargetType='ScrollBar'>
@@ -199,7 +236,7 @@ static class Theme
               <Thumb>
                 <Thumb.Template>
                   <ControlTemplate TargetType='Thumb'>
-                    <Border Background='#66DEDEDE' CornerRadius='3' Margin='1,2' />
+                    <Border Background='" + TextColor + @"' Margin='1,2' />
                   </ControlTemplate>
                 </Thumb.Template>
               </Thumb>
@@ -210,10 +247,30 @@ static class Theme
     </Setter>
   </Style>
 
+  <!-- Tooltips open in their own window, so they're given the app's font directly. -->
   <Style TargetType='ToolTip'>
-    <Setter Property='Background' Value='#302F2F' />
-    <Setter Property='Foreground' Value='" + LabelColor + @"' />
-    <Setter Property='BorderBrush' Value='" + LineColor + @"' />
+    <Setter Property='OverridesDefaultStyle' Value='True' />
+    <Setter Property='HasDropShadow' Value='False' />
+    <Setter Property='FontFamily' Value='{DynamicResource AppFont}' />
+    <Setter Property='FontSize' Value='12' />
+    <Setter Property='Foreground' Value='" + TextColor + @"' />
+    <Setter Property='MaxWidth' Value='250' />
+    <Setter Property='Template'>
+      <Setter.Value>
+        <ControlTemplate TargetType='ToolTip'>
+          <Grid Margin='0,0,3,3'>
+            <Border Background='" + TextColor + @"' Margin='3,3,-3,-3' />
+            <Border Background='" + BackgroundColor + @"' BorderBrush='" + TextColor + @"' BorderThickness='2' Padding='8,6'>
+              <ContentPresenter>
+                <ContentPresenter.Resources>
+                  <Style TargetType='TextBlock'><Setter Property='TextWrapping' Value='Wrap' /></Style>
+                </ContentPresenter.Resources>
+              </ContentPresenter>
+            </Border>
+          </Grid>
+        </ControlTemplate>
+      </Setter.Value>
+    </Setter>
   </Style>
 </ResourceDictionary>";
 }

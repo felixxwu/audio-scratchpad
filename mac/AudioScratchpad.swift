@@ -107,18 +107,16 @@ final class AppModel: NSObject, ObservableObject, AVAudioPlayerDelegate {
         waveforms[url] = peaks ?? []
     }
 
-    // Checked one at a time, because each check reads up to 36 seconds of audio.
+    // Checked one at a time, off the main thread, because each check reads up to 36 seconds of audio.
     private var qualityQueue: Task<Void, Never>?
-    private lazy var qualityChecker = Result { try QualityChecker() }
 
     func loadQuality(for url: URL) async {
         guard qualities[url] == nil else { return }
         let previous = qualityQueue
-        let checker = qualityChecker
         let task = Task.detached { () -> QualityReport in
             await previous?.value
             do {
-                return try checker.get().check(url)
+                return try sharedQualityChecker.get().check(url)
             } catch {
                 return QualityReport(verdict: "unknown", label: "", summary: error.localizedDescription)
             }
@@ -293,6 +291,9 @@ final class AppModel: NSObject, ObservableObject, AVAudioPlayerDelegate {
     }
 }
 
+// Loaded on first use, which is on a background thread, so reading the script never holds up the window.
+private let sharedQualityChecker = Result { try QualityChecker() }
+
 extension Color {
     static let appAccent = Color(red: 0.78, green: 0.89, blue: 1.0)
 }
@@ -385,12 +386,26 @@ final class FileDragView: NSView, NSDraggingSource {
     }
 }
 
-// Whether a recording is lossless, lossy or upsampled, with the reasons on hover. Always the same width, so the
-// waveforms in every row line up.
+// Whether a recording is lossless, lossy or upsampled, with the reasons on hover, and a loading bar until that's known.
+// Always the same width, so the waveforms in every row line up.
 struct QualityLabel: View {
     let report: QualityReport?
+    var isLoading = false
 
     var body: some View {
+        if isLoading && report == nil {
+            ProgressView()
+                .progressViewStyle(.linear)
+                .controlSize(.small)
+                .frame(width: 44)
+                .frame(width: 58, alignment: .trailing)
+                .accessibilityLabel("Checking quality")
+        } else {
+            label
+        }
+    }
+
+    private var label: some View {
         Text(report?.label ?? "")
             .font(.caption)
             .foregroundStyle(.secondary)
@@ -543,7 +558,7 @@ struct ContentView: View {
                 .accessibilityLabel(recording.name)
                 .task(id: recording.url) { await model.loadWaveform(for: recording.url) }
 
-            QualityLabel(report: model.qualities[recording.url])
+            QualityLabel(report: model.qualities[recording.url], isLoading: true)
                 .task(id: recording.url) { await model.loadQuality(for: recording.url) }
 
             Text(Duration.seconds(recording.duration).formatted(.time(pattern: .minuteSecond)))

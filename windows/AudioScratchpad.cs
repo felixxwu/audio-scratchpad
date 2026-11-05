@@ -102,6 +102,7 @@ sealed class Row
     public Grid Root;
     public Button Play, Copy;
     public TextBlock Quality;
+    public ProgressBar QualityLoading;
     public Border Separator;
     public WaveformView Wave;
     public double Duration;
@@ -363,6 +364,7 @@ sealed partial class MainWindow : Window
             report = await check;
             qualities[path] = report;
         }
+        row.QualityLoading.Visibility = Visibility.Collapsed;
         row.Quality.Text = report.Label;
         row.Quality.ToolTip = string.IsNullOrEmpty(report.Summary) ? null : report.Summary;
         AutomationProperties.SetName(row.Quality, report.Label == "" ? "" : "Quality: " + report.Label + ". " + report.Summary);
@@ -471,6 +473,15 @@ sealed partial class MainWindow : Window
         AutomationProperties.SetName(row.Wave, name);
 
         row.Quality = QualityText(grid);
+        // Shown in place of the label until the check finishes.
+        row.QualityLoading = new ProgressBar
+        {
+            IsIndeterminate = true, Width = 44, Height = 3, HorizontalAlignment = HorizontalAlignment.Right,
+            Foreground = Theme.Accent, Background = Theme.Line, BorderThickness = new Thickness(0),
+        };
+        AutomationProperties.SetName(row.QualityLoading, "Checking quality");
+        Grid.SetColumn(row.QualityLoading, 2);
+        grid.Children.Add(row.QualityLoading);
         TimeText(grid).Text = FormatTime(row.Duration);
         row.Separator = RowSeparator(grid);
 

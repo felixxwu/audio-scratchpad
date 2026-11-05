@@ -253,7 +253,7 @@ sealed partial class MainWindow : Window
         foreach (var process in processes) process.Dispose();
         knownSources = sources.ToDictionary(s => s.ProcessId);
 
-        var items = new List<object> { new ComboBoxItem { Content = "Choose an app…" } };
+        var items = new List<object> { new ComboBoxItem { Content = "Choose an app\u2026" } };
         foreach (var source in sources)
         {
             var row = new StackPanel { Orientation = Orientation.Horizontal };
@@ -407,7 +407,8 @@ sealed partial class MainWindow : Window
         try { row.Duration = Waveform.Duration(path); }
         catch (Exception) { }
 
-        row.Play = IconButton(path == playingPath ? Theme.Stop : Theme.Play, true, "Play", 0, grid);
+        row.Play = IconButton(Theme.Play, true, "Play", 0, grid);
+        SetPlayButton(row, path == playingPath);
         row.Play.Width = 18;
         row.Play.HorizontalAlignment = HorizontalAlignment.Left;
         row.Play.Click += (s, e) => TogglePlayback(path);
@@ -424,6 +425,7 @@ sealed partial class MainWindow : Window
         row.Copy.Click += (s, e) => CopyToClipboard(path);
         Point? pressed = null;
         row.Copy.PreviewMouseLeftButtonDown += (s, e) => pressed = e.GetPosition(row.Copy);
+        row.Copy.PreviewMouseLeftButtonUp += (s, e) => pressed = null;
         row.Copy.PreviewMouseMove += (s, e) =>
         {
             if (!pressed.HasValue || e.LeftButton != MouseButtonState.Pressed) return;
@@ -500,9 +502,16 @@ sealed partial class MainWindow : Window
         currentPath = null;
         if (reason != null) ShowMessage("Recording stopped: " + reason);
         else if (!saved) ShowMessage("No sound came from that app, so nothing was saved.");
-        RefreshSources();
         RefreshRecordings();
         UpdateControls();
+    }
+
+    static void SetPlayButton(Row row, bool playing)
+    {
+        string label = playing ? "Stop playing" : "Play";
+        row.Play.Content = Glyph(playing ? Theme.Stop : Theme.Play, true);
+        row.Play.ToolTip = label;
+        AutomationProperties.SetName(row.Play, label);
     }
 
     void TogglePlayback(string path)
@@ -517,8 +526,7 @@ sealed partial class MainWindow : Window
         player.Open(new Uri(path));
         player.Play();
         playingPath = path;
-        rows[path].Play.Content = Glyph(Theme.Stop, true);
-        AutomationProperties.SetName(rows[path].Play, "Stop playing");
+        SetPlayButton(rows[path], true);
         UpdateControls();
     }
 
@@ -537,8 +545,7 @@ sealed partial class MainWindow : Window
         Row row;
         if (rows.TryGetValue(playingPath, out row))
         {
-            row.Play.Content = Glyph(Theme.Play, true);
-            AutomationProperties.SetName(row.Play, "Play");
+            SetPlayButton(row, false);
             row.Wave.Playhead = null;
         }
         playingPath = null;

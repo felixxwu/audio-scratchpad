@@ -52,17 +52,12 @@ final class RecordingFile {
             ])
         }
 
-        try file.seekToEnd()
         if silentFrames > 0 {
-            var remaining = silentFrames * bytesPerFrame
-            let silence = Data(count: Int(format.sampleRate) * bytesPerFrame)
-            while remaining > 0 {
-                let chunk = min(remaining, silence.count)
-                try file.write(contentsOf: silence.prefix(chunk))
-                dataSize += Int64(chunk)
-                remaining -= chunk
-            }
+            // Growing a file fills the new space with zeros, so the pause needs no loop of writes.
+            dataSize += Int64(silentFrames * bytesPerFrame)
+            try file.truncate(atOffset: UInt64(44 + dataSize))
         }
+        try file.seekToEnd()
         let bytes = samples.withUnsafeBytes { Data($0) }
         try file.write(contentsOf: bytes)
         dataSize += Int64(bytes.count)

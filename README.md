@@ -30,7 +30,7 @@
 - **Start on the first sound:** recording begins at the first non-zero sample, so there's no silence to trim from the start.
 - **Keep the full quality:** recordings are uncompressed 32-bit float WAV files at 48 kHz in stereo.
 - **See every take:** each recording gets a waveform you can click or drag along to jump to any point.
-- **Know what you captured:** each recording is labelled lossless, with its estimated bitrate if it came from a lossy source, or with the lower sample rate it came from, and hovering the label says what it means. That shows whether the app you recorded was playing a full-quality file. [How it works](quality/README.md)
+- **Know what you captured:** each recording is analysed for the traces of MP3, AAC, Vorbis and Opus encoding and of upsampling, even though it's saved as 32-bit float. It's then labelled lossless, with its estimated bitrate if it came from a lossy source, or with the lower sample rate it came from, and hovering the label says what it means. That shows whether the app you recorded was playing a full-quality file. It works the same in the Mac, Windows and web versions. [How it works](quality/README.md)
 - **Use it in your browser:** the [web version](#web) runs the same recorder with nothing to install.
 - **Use it anywhere:** click the copy icon to copy the file, or drag the icon into another app.
 

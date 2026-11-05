@@ -103,10 +103,50 @@ private func checkRecordingFile() throws {
     }
 }
 
+// Runs real recordings through the shared quality check, to catch mistakes in handing audio to JavaScript. The check's
+// own judgement is tested against real music in quality/.
+private func checkQuality() throws {
+    let checker = try QualityChecker(scriptURL: URL(fileURLWithPath: "../web/audio-quality.js"))
+    var seed: UInt64 = 1
+    func random() -> Double {
+        seed = (seed &* 1103515245 &+ 12345) % 2147483648
+        return Double(seed) / 2147483648
+    }
+    func check(_ values: [Float]) throws -> QualityReport {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("quality-check-\(UUID()).wav")
+        defer { try? FileManager.default.removeItem(at: url) }
+        try RecordingFile(url: url).append(sampleBuffer(at: 0, values: values))
+        return try checker.check(url)
+    }
+
+    // A minute of 16-bit noise, the same in both channels, is long enough to be read in parts.
+    let noise = (0..<48000 * 60).map { _ in Float(((random() - 0.5) * 16384).rounded() / 32768) }
+    let clean = try check(noise)
+    precondition(clean.verdict == "lossless" && clean.label == "Lossless", "noise should be lossless, got \(clean)")
+    precondition(clean.summary.contains("16-bit"), "samples should reach the check unchanged, got \(clean.summary)")
+    precondition(clean.summary.contains("really mono"), "channels should reach the check in order, got \(clean.summary)")
+
+    // A thousand tones below 16 kHz and nothing above, the way a 128 kbps MP3 cuts off.
+    var tones = [Float](repeating: 0, count: 48000 * 5)
+    for _ in 0..<1000 {
+        let step = 2 * Double.pi * (100 + random() * 15900) / 48000
+        let phase = random() * 2 * Double.pi
+        let (turnRe, turnIm) = (cos(step), sin(step))
+        var (re, im) = (cos(phase), sin(phase))
+        for index in tones.indices {
+            tones[index] += Float(0.002 * re)
+            (re, im) = (re * turnRe - im * turnIm, re * turnIm + im * turnRe)
+        }
+    }
+    let lossy = try check(tones)
+    precondition(lossy.verdict == "lossy" && lossy.label == "Lossy", "a 16 kHz cutoff should look lossy, got \(lossy)")
+}
+
 @main
 struct SelfCheck {
     static func main() throws {
         try checkRecordingFile()
+        try checkQuality()
 
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("waveform-check-\(UUID()).caf")
         defer { try? FileManager.default.removeItem(at: url) }

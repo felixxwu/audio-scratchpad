@@ -1,11 +1,11 @@
 #!/usr/bin/env node
-// Command-line front end for audio-quality.js. Reads WAV files directly; other formats are decoded with ffmpeg if it's
+// Command-line front end for web/audio-quality.js. Reads WAV files directly; other formats are decoded with ffmpeg if it's
 // installed. Usage: node quality/cli.js [--json] file...
 "use strict";
 const fs = require("fs");
 const path = require("path");
 const { execFileSync } = require("child_process");
-const { analyze } = require("./audio-quality.js");
+const { analyze } = require("../web/audio-quality.js");
 
 function readWav(buffer) {
   if (buffer.toString("ascii", 0, 4) !== "RIFF" || buffer.toString("ascii", 8, 12) !== "WAVE") return null;

@@ -82,6 +82,17 @@ static class Waveform
         }
     }
 
+    // Finds the samples of a 32-bit float WAV, and returns where they start.
+    public static long FindFloatData(BinaryReader r, out int channels, out int sampleRate, out long frames)
+    {
+        var wav = ReadHeader(r);
+        if (wav.Tag != 3 || wav.Bits != 32) throw new InvalidDataException("Only 32-bit float WAV files can be checked");
+        channels = wav.Channels;
+        sampleRate = wav.ByteRate / 4 / wav.Channels;
+        frames = wav.DataBytes / 4 / wav.Channels;
+        return wav.DataStart;
+    }
+
     public static float[] Peaks(string path, int bars = 400)
     {
         var peaks = new float[bars];

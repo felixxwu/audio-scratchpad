@@ -19,11 +19,13 @@ for /f "delims=-+" %%a in ("%version%") do set "version=%%a"
 >> ..\build\AssemblyInfo.cs echo [assembly: AssemblyVersion("%version%")]
 >> ..\build\AssemblyInfo.cs echo [assembly: AssemblyFileVersion("%version%")]
 
-"%fw%\csc.exe" /nologo /optimize /out:..\build\self-check.exe SelfCheck.cs RecordingFile.cs Waveform.cs || exit /b 1
+"%fw%\csc.exe" /nologo /optimize /out:..\build\self-check.exe SelfCheck.cs RecordingFile.cs Waveform.cs Quality.cs || exit /b 1
 ..\build\self-check.exe || exit /b 1
 
+rem The quality check is shared with the web version, which serves the same file, so it is built into the exe.
 "%fw%\csc.exe" /nologo /optimize /target:winexe "/out:..\build\Audio Scratchpad.exe" ^
   "/r:%wpf%\PresentationCore.dll" "/r:%wpf%\PresentationFramework.dll" "/r:%wpf%\WindowsBase.dll" ^
   "/r:%fw%\System.Xaml.dll" /r:System.Drawing.dll /r:Microsoft.VisualBasic.dll ^
-  ..\build\AssemblyInfo.cs AudioScratchpad.cs TitleBar.cs Theme.cs Recorder.cs RecordingFile.cs Waveform.cs || exit /b 1
+  /resource:..\web\audio-quality.js,audio-quality.js ^
+  ..\build\AssemblyInfo.cs AudioScratchpad.cs TitleBar.cs Theme.cs Recorder.cs RecordingFile.cs Waveform.cs Quality.cs || exit /b 1
 echo Built build\Audio Scratchpad.exe

@@ -55,6 +55,7 @@ final class AppModel: NSObject, ObservableObject, AVAudioPlayerDelegate {
     @Published var needsPermission = false
     @Published var playingURL: URL?
     @Published var waveforms: [URL: [Float]] = [:]
+    @Published var qualities: [URL: QualityReport] = [:]
     @Published var copiedURL: URL?
 
     let live = LiveWaveform()
@@ -104,6 +105,26 @@ final class AppModel: NSObject, ObservableObject, AVAudioPlayerDelegate {
         guard waveforms[url] == nil else { return }
         let peaks = await Task.detached { try? waveformPeaks(of: url) }.value
         waveforms[url] = peaks ?? []
+    }
+
+    // Checked one at a time, because each check reads up to 36 seconds of audio.
+    private var qualityQueue: Task<Void, Never>?
+    private lazy var qualityChecker = Result { try QualityChecker() }
+
+    func loadQuality(for url: URL) async {
+        guard qualities[url] == nil else { return }
+        let previous = qualityQueue
+        let checker = qualityChecker
+        let task = Task.detached { () -> QualityReport in
+            await previous?.value
+            do {
+                return try checker.get().check(url)
+            } catch {
+                return QualityReport(verdict: "unknown", label: "", summary: error.localizedDescription)
+            }
+        }
+        qualityQueue = Task { _ = await task.value }
+        qualities[url] = await task.value
     }
 
     func start() async {
@@ -364,6 +385,23 @@ final class FileDragView: NSView, NSDraggingSource {
     }
 }
 
+// Whether a recording is lossless, lossy or upsampled, with the reasons on hover. Always the same width, so the
+// waveforms in every row line up.
+struct QualityLabel: View {
+    let report: QualityReport?
+
+    var body: some View {
+        Text(report?.label ?? "")
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .lineLimit(1)
+            .frame(width: 58, alignment: .trailing)
+            .help(report?.summary ?? "")
+            .accessibilityLabel(report.map { "Quality: \($0.label). \($0.summary)" } ?? "")
+            .accessibilityHidden(report?.label.isEmpty ?? true)
+    }
+}
+
 struct LiveRecordingRow: View {
     @ObservedObject var live: LiveWaveform
     let name: String
@@ -388,6 +426,7 @@ struct LiveRecordingRow: View {
                 .foregroundStyle(.secondary)
 
             // Invisible, to line the waveform up with the finished rows below.
+            QualityLabel(report: nil)
             Image(systemName: "doc.on.doc").hidden()
             Image(systemName: "folder").hidden()
             Image(systemName: "trash").hidden()
@@ -503,6 +542,9 @@ struct ContentView: View {
                 .accessibilityElement()
                 .accessibilityLabel(recording.name)
                 .task(id: recording.url) { await model.loadWaveform(for: recording.url) }
+
+            QualityLabel(report: model.qualities[recording.url])
+                .task(id: recording.url) { await model.loadQuality(for: recording.url) }
 
             Text(Duration.seconds(recording.duration).formatted(.time(pattern: .minuteSecond)))
                 .monospacedDigit()

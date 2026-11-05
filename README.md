@@ -4,14 +4,14 @@
 
 ### Record the sound of one app, then play it back or drag it straight into another app.
 
-**For Mac and Windows. No silence to trim, no quality lost, nothing else from your computer in the recording.**
+**For Mac, Windows and the web. No silence to trim, no quality lost, nothing else from your computer in the recording.**
 
 [![Latest release](https://img.shields.io/github/v/release/felixxwu/audio-scratchpad?style=flat-square)](https://github.com/felixxwu/audio-scratchpad/releases/latest)
 [![Build status](https://img.shields.io/github/actions/workflow/status/felixxwu/audio-scratchpad/release.yml?branch=main&style=flat-square&label=build)](https://github.com/felixxwu/audio-scratchpad/actions/workflows/release.yml)
-[![Platforms](https://img.shields.io/badge/platforms-macOS%20%7C%20Windows-blue?style=flat-square)](#install)
+[![Platforms](https://img.shields.io/badge/platforms-macOS%20%7C%20Windows%20%7C%20Web-blue?style=flat-square)](#install)
 [![MIT license](https://img.shields.io/badge/license-MIT-f4c430?style=flat-square)](LICENSE)
 
-**[Download the latest release](https://github.com/felixxwu/audio-scratchpad/releases/latest)**
+**[Download the latest release](https://github.com/felixxwu/audio-scratchpad/releases/latest)** · **[Try it in your browser](https://audio-scratchpad.web.app)**
 
 [Features](#features) · [Install](#install) · [Usage](#usage) · [Build from source](#build-from-source) · [Contributing](#contributing) · [Code signing policy](#code-signing-policy) · [License](#license)
 
@@ -30,7 +30,8 @@
 - **Start on the first sound:** recording begins at the first non-zero sample, so there's no silence to trim from the start.
 - **Keep the full quality:** recordings are uncompressed 32-bit float WAV files at 48 kHz in stereo.
 - **See every take:** each recording gets a waveform you can click or drag along to jump to any point.
-- **Know what you captured:** each recording is labelled lossless, with its estimated bitrate if it came from a lossy source, or with the lower sample rate it came from, and hovering the label says what it means. That shows whether the app you recorded was playing a full-quality file. [How it works](quality/README.md)
+- **Know what you captured:** each recording is analysed for the traces of MP3, AAC, Vorbis and Opus encoding and of upsampling, even though it's saved as 32-bit float. It's then labelled lossless, with its estimated bitrate if it came from a lossy source, or with the lower sample rate it came from, and hovering the label says what it means. That shows whether the app you recorded was playing a full-quality file. It works the same in the Mac, Windows and web versions. [How it works](quality/README.md)
+- **Use it in your browser:** the [web version](#web) runs the same recorder with nothing to install.
 - **Use it anywhere:** click the copy icon to copy the file, or drag the icon into another app.
 
 ## Install
@@ -39,6 +40,7 @@
 | -------- | --------------------------------- | -------------------------------------------------------------------------------------- |
 | Mac      | Apple Silicon, macOS 14 or later  | [`.zip` from the latest release](https://github.com/felixxwu/audio-scratchpad/releases/latest) |
 | Windows  | Windows 10 version 2004 or later  | [`.exe` from the latest release](https://github.com/felixxwu/audio-scratchpad/releases/latest) |
+| Web      | Desktop Chrome or Edge to record other apps | [audio-scratchpad.web.app](https://audio-scratchpad.web.app) |
 
 ### Mac
 
@@ -60,7 +62,7 @@ There's also a [browser version](https://audio-scratchpad.web.app), with nothing
 
 ## Usage
 
-1. Open the app you want to record and choose it under **Source**, or choose **Microphone**.
+1. Open the app you want to record and choose it under **Source**, or choose **Microphone**. On the web, choose **Other apps** and pick what to share.
 2. Click **Record**. The button shows "waiting for audio..." until the source makes a sound.
 3. Click **Stop** when you're done, and the recording appears in the list.
 
@@ -70,6 +72,7 @@ Recordings are saved here:
 | -------- | --------------------------- |
 | Mac      | `~/Music/Audio Scratchpad`  |
 | Windows  | `Music\Audio Scratchpad`    |
+| Web      | Browser storage (see [Web](#web)) |
 
 > [!NOTE]
 > Only apps with a Dock icon or a window are listed, so apps that run only from the menu bar or system tray won't appear.

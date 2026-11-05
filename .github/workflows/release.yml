@@ -15,7 +15,11 @@ jobs:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
-      - run: mac/build.sh
+        with:
+          persist-credentials: false
+      - run: mac/build.sh "$TAG"
+        env:
+          TAG: ${{ github.event.release.tag_name }}
       - name: Attach the app to the release
         if: github.event_name == 'release'
         env:
@@ -29,12 +33,16 @@ jobs:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - run: web/check.sh
 
   build-windows:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - run: windows\build.cmd %TAG%
         shell: cmd
         env:

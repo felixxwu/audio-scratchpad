@@ -28,6 +28,7 @@ static class SelfCheck
             Require(recording.HasStarted, "a non-zero sample should start the recording");
             // The first buffer ends at 101 + 4 frames, so this leaves a one second pause.
             recording.Append(102 + 4.0 / 48000, Stereo(0.5f, 0.5f));
+            Require(Math.Abs(Waveform.Duration(path) - (2 + 48000 + 2) / 48000.0) < 1e-9, "a file still being written should already be playable");
             // Jitter under 10ms must not add silence.
             recording.Append(102 + 6.0 / 48000 + 0.005, Stereo(0.75f));
             // A packet whose time Windows flags as unreliable carries straight on.
@@ -122,6 +123,14 @@ static class SelfCheck
             Require(stopped, "should stop before the file outgrows what a WAV can hold");
         }
         Require(new FileInfo(path).Length == 44 + 16, "a full recording should stay playable");
+
+        bool refused = false;
+        using (var second = new RecordingFile(path))
+        {
+            try { second.Append(0, Stereo(1)); }
+            catch (IOException) { refused = true; }
+        }
+        Require(refused && new FileInfo(path).Length == 44 + 16, "should never overwrite an existing recording");
     }
 
     static void Main()

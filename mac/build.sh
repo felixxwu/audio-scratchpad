@@ -3,6 +3,11 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
+# An optional version such as v1.2.0, stored in the app. Bundle versions can't hold a prerelease suffix such as -beta.1.
+version="${1:-0.0.0}"
+version="${version#v}"
+version="${version%%[-+]*}"
+
 app="../build/Audio Scratchpad.app"
 rm -rf ../build
 mkdir -p "$app/Contents/MacOS"
@@ -14,7 +19,7 @@ $swiftc Waveform.swift RecordingFile.swift SelfCheck.swift -o ../build/self-chec
 
 $swiftc AudioScratchpad.swift Recorder.swift Waveform.swift RecordingFile.swift -o "$app/Contents/MacOS/Audio Scratchpad"
 
-cat > "$app/Contents/Info.plist" <<'PLIST'
+cat > "$app/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -23,8 +28,8 @@ cat > "$app/Contents/Info.plist" <<'PLIST'
   <key>CFBundleIdentifier</key><string>com.felixwu.audioscratchpad</string>
   <key>CFBundleName</key><string>Audio Scratchpad</string>
   <key>CFBundlePackageType</key><string>APPL</string>
-  <key>CFBundleShortVersionString</key><string>1.0</string>
-  <key>CFBundleVersion</key><string>1</string>
+  <key>CFBundleShortVersionString</key><string>$version</string>
+  <key>CFBundleVersion</key><string>$version</string>
   <key>LSMinimumSystemVersion</key><string>14.0</string>
   <key>NSHighResolutionCapable</key><true/>
 </dict>

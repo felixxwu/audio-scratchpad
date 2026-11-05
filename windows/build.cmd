@@ -10,6 +10,8 @@ rem An optional version such as v1.2.0, stored in the exe along with its product
 set "version=%~1"
 if not defined version set "version=0.0.0"
 if "%version:~0,1%"=="v" set "version=%version:~1%"
+rem Windows version numbers can't hold a prerelease suffix such as -beta.1.
+for /f "delims=-+" %%a in ("%version%") do set "version=%%a"
 > ..\build\AssemblyInfo.cs echo using System.Reflection;
 >> ..\build\AssemblyInfo.cs echo [assembly: AssemblyTitle("Audio Scratchpad")]
 >> ..\build\AssemblyInfo.cs echo [assembly: AssemblyProduct("Audio Scratchpad")]

@@ -26,8 +26,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.event.release.tag_name }}
         run: |
-          ditto -c -k --keepParent "build/Audio Scratchpad.app" "Audio-Scratchpad-$TAG.zip"
-          gh release upload "$TAG" "Audio-Scratchpad-$TAG.zip" --clobber
+          ditto -c -k --keepParent "build/Audio Scratchpad.app" "Audio-Scratchpad-$TAG-mac.zip"
+          gh release upload "$TAG" "Audio-Scratchpad-$TAG-mac.zip" --clobber
 
   check-web:
     runs-on: macos-latest
@@ -54,5 +54,5 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.event.release.tag_name }}
         run: |
-          cp "build/Audio Scratchpad.exe" "Audio-Scratchpad-$TAG.exe"
-          gh release upload "$TAG" "Audio-Scratchpad-$TAG.exe" --clobber
+          cp "build/Audio Scratchpad.exe" "Audio-Scratchpad-$TAG-windows.exe"
+          gh release upload "$TAG" "Audio-Scratchpad-$TAG-windows.exe" --clobber

@@ -38,8 +38,8 @@
 
 | Platform | Requirements                      | Download                                                                               |
 | -------- | --------------------------------- | -------------------------------------------------------------------------------------- |
-| Mac      | Apple Silicon, macOS 14 or later  | [`.zip` from the latest release](https://github.com/felixxwu/audio-scratchpad/releases/latest) |
-| Windows  | Windows 10 version 2004 or later  | [`.exe` from the latest release](https://github.com/felixxwu/audio-scratchpad/releases/latest) |
+| Mac      | Apple Silicon, macOS 14 or later  | [`-mac.zip` from the latest release](https://github.com/felixxwu/audio-scratchpad/releases/latest) |
+| Windows  | Windows 10 version 2004 or later  | [`-windows.exe` from the latest release](https://github.com/felixxwu/audio-scratchpad/releases/latest) |
 | Web      | Desktop Chrome or Edge to record other apps | [audio-scratchpad.web.app](https://audio-scratchpad.web.app) |
 
 ### Mac

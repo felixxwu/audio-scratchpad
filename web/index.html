@@ -114,8 +114,8 @@
   }
   #record:active:not(:disabled) { transform: translate(5px, 5px); box-shadow: 0 0 0 2px var(--bg); }
   #record:disabled { border-style: dashed; border-color: var(--muted); background: transparent; box-shadow: none; color: var(--muted); cursor: default; }
-  #message { margin: 12px 0 0; padding: 8px 12px; border: 2px solid var(--line); }
-  #message:empty { display: none; }
+  #message { margin: 12px 0 0; padding: 8px 12px; border: 2px solid var(--line); text-align: center; }
+  #share-hint:not([hidden]) { display: block; max-width: 100%; margin: 8px auto 4px; }
   hr { margin: 20px 0 0; border: 0; border-top: 1px solid var(--line); }
   #list { margin: 0; padding: 0; list-style: none; }
   #list li {
@@ -194,7 +194,10 @@
   <span id="timer"></span>
   <button id="record" type="button"></button>
 </div>
-<p id="message" role="status"></p>
+<div id="message" role="status" hidden>
+  <span id="message-text"></span>
+  <img id="share-hint" src="share-audio.gif" alt="Turning on the audio switch in Chrome's sharing popup" width="480" hidden>
+</div>
 <hr>
 <ul id="list"></ul>
 <p id="empty" hidden>No recordings yet</p>
@@ -519,7 +522,8 @@ function runApp() {
   const recordButton = element('record');
   const list = element('list');
   const sourcePicker = element('source');
-  const canShareApps = Boolean(navigator.mediaDevices?.getDisplayMedia);
+  // Firefox and Safari can share a screen but never its sound; only Chromium browsers have userAgentData.
+  const canShareApps = Boolean(navigator.mediaDevices?.getDisplayMedia && navigator.userAgentData);
   const canUseMicrophone = Boolean(navigator.mediaDevices?.getUserMedia);
   const supported = (canShareApps || canUseMicrophone) && navigator.storage?.getDirectory;
   sourcePicker.options[0].disabled = !canShareApps;
@@ -535,7 +539,11 @@ function runApp() {
   let rows = new Map();
   let playing = null;
 
-  const showMessage = (text = '') => { element('message').textContent = text; };
+  const showMessage = (text = '', withShareHint = false) => {
+    element('message').hidden = !text;
+    element('message-text').textContent = text;
+    element('share-hint').hidden = !withShareHint;
+  };
 
   function updateControls() {
     const capturing = state === 'waiting' || state === 'recording';
@@ -724,7 +732,7 @@ function runApp() {
       if (!track) {
         releaseAudio(stream);
         state = 'idle';
-        showMessage('No sound was shared. Choose a tab, or turn on the audio switch in the sharing popup. Firefox and Safari can only share video.');
+        showMessage('Press Record again and turn on the audio switch, like this:', true);
         updateControls();
         return;
       }
@@ -844,6 +852,7 @@ function runApp() {
     element('empty').hidden = true;
     return;
   }
+  if (!canShareApps) showMessage('Recording other apps needs a desktop version of Chrome or Edge. This browser can record the microphone.');
   addEventListener('focus', () => refreshRecordings().catch(() => {}));
   refreshRecordings().catch((error) => showMessage(`Couldn't open browser storage: ${error.message}`));
 }

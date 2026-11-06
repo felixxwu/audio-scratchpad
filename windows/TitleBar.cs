@@ -11,12 +11,6 @@ sealed partial class MainWindow
 {
     UIElement BuildTitleBar()
     {
-        var title = new Border
-        {
-            Background = Theme.Text, Padding = new Thickness(30, 4, 30, 4),
-            HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(16, 0, 0, 0),
-            Child = new TextBlock { Text = Title.ToUpperInvariant(), Foreground = Theme.Background, FontSize = 15, FontWeight = FontWeights.Black },
-        };
         maximizeButton = CaptionButton("\uE922", "Maximize", "Caption", ToggleMaximized);
         var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right };
         buttons.Children.Add(CaptionButton("\uE921", "Minimize", "Caption", () => WindowState = WindowState.Minimized));
@@ -24,12 +18,11 @@ sealed partial class MainWindow
         buttons.Children.Add(CaptionButton("\uE8BB", "Close", "CloseCaption", Close));
 
         var bar = new Grid { Height = 44, Background = Theme.Background };
-        bar.Children.Add(title);
         bar.Children.Add(buttons);
 
         // Windows dims the title bar of a window that isn't active.
-        Activated += (s, e) => { title.Opacity = 1; buttons.Opacity = 1; };
-        Deactivated += (s, e) => { title.Opacity = 0.55; buttons.Opacity = 0.55; };
+        Activated += (s, e) => buttons.Opacity = 1;
+        Deactivated += (s, e) => buttons.Opacity = 0.55;
         return bar;
     }
 

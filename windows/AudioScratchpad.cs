@@ -199,7 +199,13 @@ sealed partial class MainWindow : Window
 
         recordButton.Style = (Style)FindResource("Record");
         messageBox.Child = messageText;
-        var controls = new DockPanel { Margin = new Thickness(16, 4, 16, 0) };
+        var heading = new Border
+        {
+            Background = Theme.Text, Padding = new Thickness(30, 4, 30, 4),
+            HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(16, 16, 16, 16),
+            Child = new TextBlock { Text = Title.ToUpperInvariant(), Foreground = Theme.Background, FontSize = 15, FontWeight = FontWeights.Black },
+        };
+        var controls = new DockPanel { Margin = new Thickness(16, 0, 16, 0) };
         var sourceLabel = new TextBlock { Text = "SOURCE", FontWeight = FontWeights.Black, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 12, 0) };
         DockPanel.SetDock(sourceLabel, Dock.Left);
         DockPanel.SetDock(recordButton, Dock.Right);
@@ -225,14 +231,17 @@ sealed partial class MainWindow : Window
         root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         root.RowDefinitions.Add(new RowDefinition());
         var divider = new Border { Height = 1, Background = Theme.Text, Margin = new Thickness(16, 20, 16, 0) };
         var titleBar = BuildTitleBar();
-        Grid.SetRow(controls, 1);
-        Grid.SetRow(messageBox, 2);
-        Grid.SetRow(divider, 3);
-        Grid.SetRow(body, 4);
+        Grid.SetRow(heading, 1);
+        Grid.SetRow(controls, 2);
+        Grid.SetRow(messageBox, 3);
+        Grid.SetRow(divider, 4);
+        Grid.SetRow(body, 5);
         root.Children.Add(titleBar);
+        root.Children.Add(heading);
         root.Children.Add(controls);
         root.Children.Add(messageBox);
         root.Children.Add(divider);

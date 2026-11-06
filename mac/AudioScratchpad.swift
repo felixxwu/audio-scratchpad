@@ -630,18 +630,14 @@ struct ContentView: View {
                 .textCase(.uppercase)
                 .foregroundStyle(Color.appBackground)
                 .padding(.horizontal, 30)
-                // Archivo leaves extra room above capitals, so less padding on top centres them.
-                .padding(.top, 2.25)
-                .padding(.bottom, 5.75)
+                .padding(.vertical, 4)
                 .background(Color.appText)
-                // Sits beside the window's close, minimise and zoom buttons, in place of the usual title.
-                .padding(.leading, 78)
-                .padding(.top, 4)
+                .padding([.leading, .top], 16)
                 .accessibilityAddTraits(.isHeader)
 
             controls
                 .padding(.horizontal, 16)
-                .padding(.top, 12)
+                .padding(.top, 16)
                 .zIndex(1)
 
             if let message = model.message {
@@ -692,8 +688,9 @@ struct ContentView: View {
         .font(.archivo(14))
         .foregroundStyle(Color.appText)
         .frame(minWidth: 480, minHeight: 340, alignment: .topLeading)
-        .background(Color.appBackground)
-        .ignoresSafeArea(.container, edges: .top)
+        .background(Color.appBackground.ignoresSafeArea())
+        // With keyboard navigation on, the Mac focuses the first control at launch; the web page starts with nothing focused.
+        .onAppear { DispatchQueue.main.async { focusedControl = nil } }
         .overlayPreferenceValue(SourceButtonBounds.self) { anchor in
             if sourceMenu.isOn, let anchor {
                 GeometryReader { geometry in

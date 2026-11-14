@@ -43,7 +43,21 @@ cat > "$app/Contents/Info.plist" <<PLIST
 </plist>
 PLIST
 
-codesign --force --sign - "$app"
+identity=$(security find-identity -v -p codesigning | grep -o '"Developer ID Application[^"]*"' | head -1 | tr -d '"' || true)
+if [[ -n $identity ]]; then
+  codesign --force --timestamp --options runtime --entitlements entitlements.plist --sign "$identity" "$app"
+else
+  # Without a Developer ID the app only runs on the Mac that built it.
+  codesign --force --sign - "$app"
+fi
+
+# Notarizing lets downloaded copies open without Gatekeeper's "can't verify" warning.
+if [[ -n ${NOTARY_PROFILE:-} ]]; then
+  ditto -c -k --keepParent "$app" ../build/notarize.zip
+  xcrun notarytool submit ../build/notarize.zip --keychain-profile "$NOTARY_PROFILE" --wait
+  xcrun stapler staple "$app"
+  rm ../build/notarize.zip
+fi
 
 mkdir -p ~/Applications
 rm -rf ~/Applications/"Audio Scratchpad.app"

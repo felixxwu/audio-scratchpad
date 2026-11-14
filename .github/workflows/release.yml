@@ -17,6 +17,27 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
+      - name: Load the signing certificate and notarization login
+        if: github.event_name == 'release'
+        env:
+          P12: ${{ secrets.DEVELOPER_ID_P12 }}
+          P12_PASSWORD: ${{ secrets.DEVELOPER_ID_P12_PASSWORD }}
+          NOTARY_APPLE_ID: ${{ secrets.NOTARY_APPLE_ID }}
+          NOTARY_PASSWORD: ${{ secrets.NOTARY_PASSWORD }}
+        run: |
+          kc="$RUNNER_TEMP/signing.keychain-db"
+          security create-keychain -p "" "$kc"
+          security set-keychain-settings "$kc"
+          security unlock-keychain -p "" "$kc"
+          security default-keychain -s "$kc"
+          security list-keychains -d user -s "$kc" login.keychain
+          echo "$P12" | base64 -D > "$RUNNER_TEMP/cert.p12"
+          security import "$RUNNER_TEMP/cert.p12" -k "$kc" -P "$P12_PASSWORD" -T /usr/bin/codesign
+          curl -fsSL -o "$RUNNER_TEMP/g2.cer" https://www.apple.com/certificateauthority/DeveloperIDG2CA.cer
+          security import "$RUNNER_TEMP/g2.cer" -k "$kc"
+          security set-key-partition-list -S apple-tool:,apple: -k "" "$kc"
+          xcrun notarytool store-credentials notary --apple-id "$NOTARY_APPLE_ID" --team-id 9CHRYGF3QD --password "$NOTARY_PASSWORD"
+          echo "NOTARY_PROFILE=notary" >> "$GITHUB_ENV"
       - run: mac/build.sh "$TAG"
         env:
           TAG: ${{ github.event.release.tag_name }}

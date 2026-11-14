@@ -700,7 +700,8 @@ struct ContentView: View {
                         Color.clear
                             .contentShape(Rectangle())
                             .onTapGesture { sourceMenu.isOn = false }
-                        sourceMenuList
+                        // Never taller than the space left below the button, so the last apps stay reachable.
+                        sourceMenuList(maxHeight: min(280, geometry.size.height - box.maxY - 12))
                             .frame(width: box.width)
                             .offset(x: box.minX, y: box.maxY - 1)
                     }
@@ -790,7 +791,7 @@ struct ContentView: View {
         .accessibilityValue(source?.name ?? "None chosen")
     }
 
-    private var sourceMenuList: some View {
+    private func sourceMenuList(maxHeight: CGFloat) -> some View {
         let options = VStack(spacing: 0) {
             ForEach(model.sources) { source in
                 Button {
@@ -814,7 +815,7 @@ struct ContentView: View {
             options
             ScrollView { options }
         }
-        .frame(maxHeight: 280)
+        .frame(maxHeight: max(maxHeight, 60))
         .background(Color.appBackground)
         .overlay(Rectangle().strokeBorder(Color.appText, lineWidth: 1))
         .background(Rectangle().fill(Color.appText).offset(x: 3, y: 3))
